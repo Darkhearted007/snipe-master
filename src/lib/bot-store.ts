@@ -336,18 +336,47 @@ export const useBotStore = create<BotState>((set, get) => ({
 
     // Maybe generate an opportunity
     const opportunities = [...s.opportunities];
+    let watchlist = s.watchlist;
+    const sf = s.safetyFilters;
+
     if (Math.random() < 0.75) {
       const token = rand(TOKENS) + Math.floor(Math.random() * 99);
       const venue = rand(active);
+      const symbol = `${token}/SOL`;
       const liquidity = 2 + Math.random() * 80;
       const safety = Math.floor(30 + Math.random() * 70);
       const confidence = Math.floor(20 + Math.random() * 80);
+
+      // Safety filter gate
+      const failsSafety =
+        safety < sf.minSafety || liquidity < sf.minLiquiditySol;
+
+      // In LIVE mode, executor may only trade tokens on enabled watchlist entries
+      const inWatchlist = watchlist.some(
+        (w) => w.symbol === symbol && w.venue === venue && w.enabled,
+      );
+      const liveGated = s.mode === "live" && !inWatchlist;
+
       const shouldEnter =
-        safety >= 60 &&
+        !failsSafety &&
+        !liveGated &&
         confidence >= 55 &&
         keptPositions.length < 5 &&
         bankroll >= s.guardrails.maxPositionSol &&
         !keptPositions.some((p) => p.token === token && s.guardrails.duplicateGuard);
+
+      const reason = shouldEnter
+        ? undefined
+        : failsSafety
+          ? safety < sf.minSafety
+            ? `safety<${sf.minSafety}`
+            : `liquidity<${sf.minLiquiditySol}`
+          : liveGated
+            ? "not in watchlist"
+            : confidence < 55
+              ? "low confidence"
+              : "risk cap";
+
       const opp: Opportunity = {
         id: id(),
         ts: Date.now(),
@@ -357,13 +386,7 @@ export const useBotStore = create<BotState>((set, get) => ({
         safety,
         confidence,
         decision: shouldEnter ? "enter" : "skip",
-        reason: shouldEnter
-          ? undefined
-          : safety < 60
-            ? "safety below 60"
-            : confidence < 55
-              ? "low confidence"
-              : "risk cap",
+        reason,
       };
       opportunities.unshift(opp);
       if (opportunities.length > MAX_FEED) opportunities.length = MAX_FEED;
@@ -378,7 +401,9 @@ export const useBotStore = create<BotState>((set, get) => ({
         id: id(),
         ts: Date.now(),
         type: "safety",
-        summary: `${token} safety ${safety}/100`,
+        summary: failsSafety
+          ? `${token} FILTERED · ${reason}`
+          : `${token} safety ${safety}/100`,
       });
       newLogs.push({
         id: id(),
@@ -386,6 +411,46 @@ export const useBotStore = create<BotState>((set, get) => ({
         type: "strategy",
         summary: `${token} confidence ${confidence}% → ${opp.decision}`,
       });
+
+      // Automated watchlist curation: track streaks on eligible tokens
+      if (s.autoCurate && !failsSafety) {
+        const existing = watchlist.find(
+          (w) => w.symbol === symbol && w.venue === venue,
+        );
+        if (existing) {
+          watchlist = watchlist.map((w) =>
+            w === existing
+              ? {
+                  ...w,
+                  positiveStreak: shouldEnter ? w.positiveStreak + 1 : 0,
+                  safety,
+                  liquiditySol: liquidity,
+                }
+              : w,
+          );
+        } else if (shouldEnter && watchlist.length < 40) {
+          watchlist = [
+            {
+              id: id(),
+              symbol,
+              venue,
+              source: "auto",
+              enabled: true,
+              safety,
+              liquiditySol: liquidity,
+              positiveStreak: 1,
+              addedAt: Date.now(),
+            },
+            ...watchlist,
+          ];
+          newLogs.push({
+            id: id(),
+            ts: Date.now(),
+            type: "learning",
+            summary: `Auto-added ${symbol} to watchlist (candidate)`,
+          });
+        }
+      }
 
       if (shouldEnter) {
         const size = Math.min(s.guardrails.maxPositionSol, bankroll * 0.5);
@@ -410,6 +475,7 @@ export const useBotStore = create<BotState>((set, get) => ({
         });
       }
     }
+
 
     // Compute equity including unrealized
     const unrealized = keptPositions.reduce(
