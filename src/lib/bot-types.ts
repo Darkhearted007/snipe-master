@@ -45,3 +45,26 @@ export interface EquityPoint {
   ts: number;
   value: number;
 }
+
+export type WatchSource = "manual" | "auto";
+
+export interface WatchEntry {
+  id: string;
+  symbol: string; // TOKEN/QUOTE
+  venue: Venue;
+  source: WatchSource;
+  enabled: boolean;
+  safety: number; // 0-100
+  liquiditySol: number;
+  positiveStreak: number; // consecutive positive decisions
+  addedAt: number;
+  note?: string;
+}
+
+export interface SafetyFilters {
+  minSafety: number; // 0-100
+  minLiquiditySol: number;
+  requireLpLocked: boolean;
+  blockHoneypots: boolean;
+  maxHolderConcentrationPct: number;
+}
