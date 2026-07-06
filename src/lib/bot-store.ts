@@ -502,6 +502,7 @@ export const useBotStore = create<BotState>((set, get) => ({
       bankroll,
       positions: keptPositions,
       opportunities,
+      watchlist,
       log: prepend(s.log, ...newLogs).slice(0, MAX_LOG),
       equity,
       peakBankroll: peak,
