@@ -123,6 +123,40 @@ export const useBotStore = create<BotState>((set, get) => ({
 
   activeVenues: { raydium: true, pumpfun: true, bsc: false },
 
+  autoCurate: true,
+  safetyFilters: {
+    minSafety: 60,
+    minLiquiditySol: 5,
+    requireLpLocked: true,
+    blockHoneypots: true,
+    maxHolderConcentrationPct: 25,
+  },
+  watchlist: [
+    {
+      id: id(),
+      symbol: "SOL/USDC",
+      venue: "raydium",
+      source: "manual",
+      enabled: true,
+      safety: 96,
+      liquiditySol: 4200,
+      positiveStreak: 0,
+      addedAt: Date.now(),
+      note: "Base pair",
+    },
+    {
+      id: id(),
+      symbol: "BONK/SOL",
+      venue: "raydium",
+      source: "manual",
+      enabled: true,
+      safety: 82,
+      liquiditySol: 380,
+      positiveStreak: 0,
+      addedAt: Date.now(),
+    },
+  ],
+
   setMode: (mode) =>
     set((s) => ({
       mode,
