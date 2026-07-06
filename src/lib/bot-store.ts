@@ -7,7 +7,9 @@ import type {
   Guardrails,
   Opportunity,
   Position,
+  SafetyFilters,
   Venue,
+  WatchEntry,
 } from "./bot-types";
 
 const STARTING_BANKROLL = 0.1;
