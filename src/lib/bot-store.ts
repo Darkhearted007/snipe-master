@@ -66,6 +66,10 @@ interface BotState {
 
   activeVenues: Record<Venue, boolean>;
 
+  watchlist: WatchEntry[];
+  autoCurate: boolean;
+  safetyFilters: SafetyFilters;
+
   setMode: (m: BotMode) => void;
   confirmLive: () => void;
   toggleWallet: () => void;
@@ -76,6 +80,17 @@ interface BotState {
   closePosition: (id: string) => void;
   toggleVenue: (v: Venue) => void;
   setGuardrails: (g: Partial<Guardrails>) => void;
+
+  addWatch: (input: { symbol: string; venue: Venue; note?: string }) =>
+    | { ok: true }
+    | { ok: false; error: string };
+  removeWatch: (id: string) => void;
+  toggleWatch: (id: string) => void;
+  promoteAuto: (id: string) => void;
+  clearAuto: () => void;
+  setAutoCurate: (v: boolean) => void;
+  setSafetyFilters: (f: Partial<SafetyFilters>) => void;
+
   tick: () => void;
 }
 
