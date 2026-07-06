@@ -226,6 +226,75 @@ export const useBotStore = create<BotState>((set, get) => ({
     set((s) => ({ activeVenues: { ...s.activeVenues, [v]: !s.activeVenues[v] } })),
   setGuardrails: (g) => set((s) => ({ guardrails: { ...s.guardrails, ...g } })),
 
+  addWatch: ({ symbol, venue, note }) => {
+    const s = get();
+    const clean = symbol.trim().toUpperCase();
+    if (!/^[A-Z0-9]+\/[A-Z0-9]+$/.test(clean)) {
+      return { ok: false as const, error: "Use TOKEN/QUOTE format (e.g. BONK/SOL)" };
+    }
+    if (s.watchlist.some((w) => w.symbol === clean && w.venue === venue)) {
+      return { ok: false as const, error: "Already in watchlist" };
+    }
+    const safety = Math.floor(55 + Math.random() * 45);
+    const liq = 10 + Math.random() * 400;
+    if (safety < s.safetyFilters.minSafety) {
+      return {
+        ok: false as const,
+        error: `Failed safety filter (${safety} < ${s.safetyFilters.minSafety})`,
+      };
+    }
+    if (liq < s.safetyFilters.minLiquiditySol) {
+      return {
+        ok: false as const,
+        error: `Insufficient liquidity (${liq.toFixed(1)} SOL)`,
+      };
+    }
+    set({
+      watchlist: [
+        {
+          id: id(),
+          symbol: clean,
+          venue,
+          source: "manual",
+          enabled: true,
+          safety,
+          liquiditySol: liq,
+          positiveStreak: 0,
+          addedAt: Date.now(),
+          note,
+        },
+        ...s.watchlist,
+      ],
+      log: prepend(s.log, {
+        id: id(),
+        ts: Date.now(),
+        type: "safety",
+        summary: `Manual add ${clean} @ ${venue} · safety ${safety}/100`,
+      }),
+    });
+    return { ok: true as const };
+  },
+  removeWatch: (wid) =>
+    set((s) => ({ watchlist: s.watchlist.filter((w) => w.id !== wid) })),
+  toggleWatch: (wid) =>
+    set((s) => ({
+      watchlist: s.watchlist.map((w) =>
+        w.id === wid ? { ...w, enabled: !w.enabled } : w,
+      ),
+    })),
+  promoteAuto: (wid) =>
+    set((s) => ({
+      watchlist: s.watchlist.map((w) =>
+        w.id === wid ? { ...w, source: "manual" } : w,
+      ),
+    })),
+  clearAuto: () =>
+    set((s) => ({ watchlist: s.watchlist.filter((w) => w.source !== "auto") })),
+  setAutoCurate: (v) => set({ autoCurate: v }),
+  setSafetyFilters: (f) =>
+    set((s) => ({ safetyFilters: { ...s.safetyFilters, ...f } })),
+
+
   tick: () => {
     const s = get();
     if (s.status !== "running") return;
