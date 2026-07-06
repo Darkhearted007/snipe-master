@@ -1,3 +1,10 @@
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/700.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/600.css";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -11,6 +18,12 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { ControlHeader } from "@/components/control-header";
+import { StatusStrip } from "@/components/status-strip";
+import { Toaster } from "@/components/ui/sonner";
+import { useBotSimulator } from "@/hooks/use-bot-simulator";
 
 function NotFoundComponent() {
   return (
@@ -77,20 +90,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "SniperBot — Control Dashboard" },
+      {
+        name: "description",
+        content:
+          "Operator dashboard for the SniperBot: paper-trading and opt-in Solana live mode with real-time status, guardrails, and decision logs.",
+      },
+      { property: "og:title", content: "SniperBot — Control Dashboard" },
+      {
+        property: "og:description",
+        content:
+          "Paper-trading and Solana live mode for newly created pairs — with start/stop, guardrails, and live opportunity feed.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
+      { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
@@ -102,7 +118,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <head>
         <HeadContent />
       </head>
@@ -119,8 +135,26 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+      <Toaster theme="dark" />
     </QueryClientProvider>
+  );
+}
+
+function AppLayout({ children }: { children: ReactNode }) {
+  useBotSimulator();
+  return (
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full bg-background">
+        <AppSidebar />
+        <div className="flex min-h-screen flex-1 flex-col">
+          <ControlHeader />
+          <StatusStrip />
+          <main className="flex-1 p-4">{children}</main>
+        </div>
+      </div>
+    </SidebarProvider>
   );
 }

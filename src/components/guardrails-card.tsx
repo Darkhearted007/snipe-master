@@ -1,0 +1,92 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
+import { useBotStore } from "@/lib/bot-store";
+import { cn } from "@/lib/utils";
+
+export function GuardrailsCard() {
+  const {
+    guardrails,
+    positions,
+    bankroll,
+    startBankroll,
+    peakBankroll,
+    guardrailBreached,
+    acknowledgeBreach,
+  } = useBotStore();
+
+  const largest = positions.reduce((m, p) => Math.max(m, p.sizeSol), 0);
+  const dailyLoss = Math.max(0, ((startBankroll - bankroll) / startBankroll) * 100);
+  const drawdown = Math.max(0, ((peakBankroll - bankroll) / peakBankroll) * 100);
+
+  const rails = [
+    {
+      label: "Max position size",
+      current: largest.toFixed(5) + " SOL",
+      pct: (largest / guardrails.maxPositionSol) * 100,
+      cap: `${guardrails.maxPositionSol} SOL`,
+    },
+    {
+      label: "Daily loss",
+      current: dailyLoss.toFixed(2) + "%",
+      pct: (dailyLoss / guardrails.dailyLossLimitPct) * 100,
+      cap: `${guardrails.dailyLossLimitPct}%`,
+    },
+    {
+      label: "Drawdown",
+      current: drawdown.toFixed(2) + "%",
+      pct: (drawdown / guardrails.drawdownLimitPct) * 100,
+      cap: `${guardrails.drawdownLimitPct}%`,
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between text-sm font-medium">
+          <span className="flex items-center gap-1.5">
+            <ShieldCheck className="h-4 w-4 text-live" /> Guardrails
+          </span>
+          {guardrailBreached && (
+            <Button size="sm" variant="outline" onClick={acknowledgeBreach}>
+              Acknowledge
+            </Button>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {rails.map((r) => {
+          const clamped = Math.min(100, r.pct);
+          const tone =
+            r.pct >= 100 ? "danger" : r.pct >= 75 ? "warning" : "success";
+          return (
+            <div key={r.label} className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{r.label}</span>
+                <span className="font-mono">
+                  {r.current} <span className="text-muted-foreground">/ {r.cap}</span>
+                </span>
+              </div>
+              <Progress
+                value={clamped}
+                className={cn(
+                  "h-1.5",
+                  tone === "danger" && "[&>div]:bg-danger",
+                  tone === "warning" && "[&>div]:bg-warning",
+                  tone === "success" && "[&>div]:bg-success",
+                )}
+              />
+            </div>
+          );
+        })}
+        <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
+          <AlertTriangle
+            className={cn("h-3 w-3", guardrailBreached ? "text-danger" : "text-live")}
+          />
+          Duplicate-position guard {guardrails.duplicateGuard ? "on" : "off"}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
