@@ -1,7 +1,15 @@
 export type BotMode = "paper" | "live";
 export type BotStatus = "idle" | "running" | "paused" | "error";
 export type Venue = "raydium" | "pumpfun" | "bsc";
-export type DecisionType = "feed" | "safety" | "strategy" | "execution" | "learning";
+export type DecisionType =
+  | "feed"
+  | "safety"
+  | "strategy"
+  | "execution"
+  | "learning"
+  | "audit"
+  | "wallet"
+  | "error";
 
 export interface Opportunity {
   id: string;
@@ -9,8 +17,8 @@ export interface Opportunity {
   token: string;
   venue: Venue;
   liquiditySol: number;
-  safety: number; // 0-100
-  confidence: number; // 0-100
+  safety: number;
+  confidence: number;
   decision: "enter" | "skip";
   reason?: string;
 }
@@ -25,6 +33,7 @@ export interface Position {
   tp: number;
   sl: number;
   openedAt: number;
+  agentSized?: boolean;
 }
 
 export interface DecisionLogEntry {
@@ -39,6 +48,7 @@ export interface Guardrails {
   dailyLossLimitPct: number;
   drawdownLimitPct: number;
   duplicateGuard: boolean;
+  adaptiveSizing: boolean; // agent decides size, ignores maxPositionSol cap
 }
 
 export interface EquityPoint {
@@ -50,21 +60,41 @@ export type WatchSource = "manual" | "auto";
 
 export interface WatchEntry {
   id: string;
-  symbol: string; // TOKEN/QUOTE
+  symbol: string;
   venue: Venue;
   source: WatchSource;
   enabled: boolean;
-  safety: number; // 0-100
+  safety: number;
   liquiditySol: number;
-  positiveStreak: number; // consecutive positive decisions
+  positiveStreak: number;
   addedAt: number;
   note?: string;
 }
 
 export interface SafetyFilters {
-  minSafety: number; // 0-100
+  minSafety: number;
   minLiquiditySol: number;
   requireLpLocked: boolean;
   blockHoneypots: boolean;
   maxHolderConcentrationPct: number;
 }
+
+export interface TradeHistoryEntry {
+  id: string;
+  ts: number;
+  mode: BotMode;
+  token: string;
+  venue: Venue;
+  sizeSol: number;
+  entry: number;
+  exit: number;
+  pnlSol: number;
+  reason: "tp" | "sl" | "manual" | "kill";
+  feePaidSol: number; // platform fee routed on profit
+  netToUserSol: number; // pnl after fee (only live)
+  feeWallet?: string;
+}
+
+export const PLATFORM_FEE_WALLET =
+  "CQf2TBVCtKAjJw1mEGpEYPVn7MUgGJ87wP4esHJhftsF";
+export const MIN_USER_DEPOSIT_SOL = 0.1;
