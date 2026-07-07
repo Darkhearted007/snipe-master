@@ -5,7 +5,16 @@ import { useBotStore } from "@/lib/bot-store";
 import type { DecisionType } from "@/lib/bot-types";
 import { cn } from "@/lib/utils";
 
-const TYPES: DecisionType[] = ["feed", "safety", "strategy", "execution", "learning"];
+const TYPES: DecisionType[] = [
+  "feed",
+  "safety",
+  "strategy",
+  "execution",
+  "learning",
+  "audit",
+  "wallet",
+  "error",
+];
 
 const toneFor: Record<DecisionType, string> = {
   feed: "bg-muted text-muted-foreground",
@@ -13,6 +22,9 @@ const toneFor: Record<DecisionType, string> = {
   strategy: "bg-warning/20 text-warning",
   execution: "bg-success/20 text-success",
   learning: "bg-secondary text-secondary-foreground",
+  audit: "bg-primary/20 text-primary",
+  wallet: "bg-live/20 text-live",
+  error: "bg-danger/20 text-danger",
 };
 
 export function DecisionsLog({ limit = 30 }: { limit?: number }) {
@@ -21,7 +33,8 @@ export function DecisionsLog({ limit = 30 }: { limit?: number }) {
 
   const toggle = (t: DecisionType) => {
     const next = new Set(filters);
-    next.has(t) ? next.delete(t) : next.add(t);
+    if (next.has(t)) next.delete(t);
+    else next.add(t);
     setFilters(next);
   };
 
@@ -30,8 +43,8 @@ export function DecisionsLog({ limit = 30 }: { limit?: number }) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center justify-between text-sm font-medium">
-          <span>Decision Log</span>
+        <CardTitle className="flex items-center justify-between gap-2 text-sm font-medium">
+          <span>Decision & Audit Log</span>
           <div className="flex flex-wrap gap-1">
             {TYPES.map((t) => (
               <button

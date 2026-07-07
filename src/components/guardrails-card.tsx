@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, ShieldCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, ShieldCheck, Sparkles } from "lucide-react";
 import { useBotStore } from "@/lib/bot-store";
 import { cn } from "@/lib/utils";
 
@@ -20,13 +21,22 @@ export function GuardrailsCard() {
   const dailyLoss = Math.max(0, ((startBankroll - bankroll) / startBankroll) * 100);
   const drawdown = Math.max(0, ((peakBankroll - bankroll) / peakBankroll) * 100);
 
+  const adaptive = guardrails.adaptiveSizing;
+
   const rails = [
-    {
-      label: "Max position size",
-      current: largest.toFixed(5) + " SOL",
-      pct: (largest / guardrails.maxPositionSol) * 100,
-      cap: `${guardrails.maxPositionSol} SOL`,
-    },
+    adaptive
+      ? {
+          label: "Position size (agent)",
+          current: largest.toFixed(5) + " SOL",
+          pct: Math.min(100, (largest / Math.max(bankroll, 0.001)) * 100),
+          cap: "adaptive",
+        }
+      : {
+          label: "Max position size",
+          current: largest.toFixed(5) + " SOL",
+          pct: (largest / guardrails.maxPositionSol) * 100,
+          cap: `${guardrails.maxPositionSol} SOL`,
+        },
     {
       label: "Daily loss",
       current: dailyLoss.toFixed(2) + "%",
@@ -47,6 +57,11 @@ export function GuardrailsCard() {
         <CardTitle className="flex items-center justify-between text-sm font-medium">
           <span className="flex items-center gap-1.5">
             <ShieldCheck className="h-4 w-4 text-live" /> Guardrails
+            {adaptive && (
+              <Badge className="ml-1 gap-1 bg-live text-live-foreground text-[10px]">
+                <Sparkles className="h-3 w-3" /> adaptive
+              </Badge>
+            )}
           </span>
           {guardrailBreached && (
             <Button size="sm" variant="outline" onClick={acknowledgeBreach}>
@@ -58,8 +73,7 @@ export function GuardrailsCard() {
       <CardContent className="space-y-3">
         {rails.map((r) => {
           const clamped = Math.min(100, r.pct);
-          const tone =
-            r.pct >= 100 ? "danger" : r.pct >= 75 ? "warning" : "success";
+          const tone = r.pct >= 100 ? "danger" : r.pct >= 75 ? "warning" : "success";
           return (
             <div key={r.label} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
