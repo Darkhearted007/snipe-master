@@ -966,7 +966,10 @@ export const useBotStore = create<BotState>()(
               getItem: () => null,
               setItem: () => undefined,
               removeItem: () => undefined,
-            } as Storage),
+              length: 0,
+              clear: () => undefined,
+              key: () => null,
+            } satisfies Storage),
       ),
       // persist only the durable slices
       partialize: (s) => ({
