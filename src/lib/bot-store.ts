@@ -31,7 +31,7 @@ function rand<T>(arr: T[]): T {
 function id() {
   return Math.random().toString(36).slice(2, 10);
 }
-function prepend<T>(arr: T[], ...items: T[]) {
+function prepend<T>(arr: T[], ...items: NoInfer<T>[]) {
   return [...items.reverse(), ...arr];
 }
 function mockAddress() {
