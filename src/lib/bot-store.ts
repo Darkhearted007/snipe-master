@@ -284,7 +284,10 @@ export const useBotStore = create<BotState>()(
         set((s) => ({
           walletConnected: false,
           walletAddress: null,
-          status: s.status === "running" && s.mode === "live" ? "idle" : s.status,
+          walletName: null,
+          // Resilience: disconnecting the wallet in live mode no longer
+          // hard-stops the bot — only the Stop button does that. Live mode
+          // will refuse to place *new* orders without a wallet.
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
@@ -292,6 +295,45 @@ export const useBotStore = create<BotState>()(
             summary: "Wallet disconnected",
           }).slice(0, MAX_LOG),
         })),
+
+      setWalletFromAdapter: ({ connected, connecting, address, walletName }) => {
+        const s = get();
+        const changed =
+          s.walletConnected !== connected ||
+          s.walletAddress !== address ||
+          s.walletName !== walletName;
+        set({
+          walletConnected: connected,
+          walletConnecting: connecting,
+          walletAddress: address,
+          walletName,
+          walletError: null,
+        });
+        if (changed) {
+          set((cur) => ({
+            log: prepend(cur.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "wallet",
+              summary:
+                connected && address
+                  ? `Wallet connected · ${walletName ?? "wallet"} · ${shortAddr(address)}`
+                  : "Wallet disconnected",
+            }).slice(0, MAX_LOG),
+          }));
+        }
+      },
+
+      logAudit: (summary, type = "audit") =>
+        set((s) => ({
+          log: prepend(s.log, {
+            id: id(),
+            ts: Date.now(),
+            type,
+            summary,
+          }).slice(0, MAX_LOG),
+        })),
+
 
       setUserDeposit: (v) => {
         if (!Number.isFinite(v) || v < MIN_USER_DEPOSIT_SOL) {
