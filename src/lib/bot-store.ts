@@ -995,21 +995,23 @@ export const useBotStore = create<BotState>()(
             healthTickErrors: 0,
           });
         } catch (err) {
+          // Resilience rule: transient tick failures NEVER change status.
+          // Only the Stop button transitions the bot to idle.
           const s = get();
           const errors = s.healthTickErrors + 1;
           const msg = err instanceof Error ? err.message : String(err);
           console.error("[bot-store] tick error", err);
           set({
             healthTickErrors: errors,
-            status: errors >= 3 ? "error" : s.status,
             log: prepend(s.log, {
               id: id(),
               ts: Date.now(),
               type: "error",
-              summary: `Tick error (${errors}/3): ${msg}`,
+              summary: `Tick error (recovered, ${errors} total): ${msg}`,
             }).slice(0, MAX_LOG),
           });
         }
+
       },
     }),
     {
@@ -1026,12 +1028,10 @@ export const useBotStore = create<BotState>()(
               key: () => null,
             } satisfies Storage),
       ),
-      // persist only the durable slices
+      // persist only the durable slices (wallet state comes from adapter)
       partialize: (s) => ({
         mode: s.mode,
         liveConfirmed: s.liveConfirmed,
-        walletConnected: s.walletConnected,
-        walletAddress: s.walletAddress,
         userDeposit: s.userDeposit,
         bankroll: s.bankroll,
         startBankroll: s.startBankroll,
@@ -1047,7 +1047,8 @@ export const useBotStore = create<BotState>()(
         log: s.log,
         tradeHistory: s.tradeHistory,
       }),
-      version: 2,
+      version: 3,
+
       onRehydrateStorage: () => (state) => {
         // Never restore "running" — always start idle so the simulator does not
         // auto-resume without a user click.
