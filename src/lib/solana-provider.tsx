@@ -1,4 +1,4 @@
-import "@solana/wallet-adapter-react-ui/styles.css";
+import "../vendor/wallet-adapter.css";
 import { useMemo, type ReactNode } from "react";
 import {
   ConnectionProvider,
