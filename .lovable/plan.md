@@ -1,93 +1,61 @@
-## SniperBot Control Dashboard
+## Scope (Phase 1 — nothing yet signs real transactions)
 
-A single-page operator dashboard to run the SniperBot in **Paper** mode (default, 0.1 SOL simulated bankroll) or **Solana Live** mode (opt-in, guarded), with clear start/stop controls and real-time status indicators.
+Goal: replace the mocked wallet + client-only state with production-grade primitives, so Phase 2 (Jupiter dry-run) and Phase 3 (real execution + platform fees + supervisor) can land safely.
 
-This plan covers **frontend UI only** — mocked state and simulated data. No wallet connect, RPC calls, or actual trading logic. Wiring to a real backend can come in a follow-up.
+### 1. Solana Wallet Adapter (multi-wallet, non-custodial)
+- Install `@solana/wallet-adapter-react`, `@solana/wallet-adapter-react-ui`, `@solana/wallet-adapter-wallets`, `@solana/web3.js`.
+- Wrap the app in `ConnectionProvider` (Helius RPC — proxied via server fn, never exposing the key) + `WalletProvider` with Phantom, Solflare, Backpack, Ledger, Trust, Coin98, WalletConnect (Torus optional).
+- Replace mocked `walletConnected` state in `bot-store.ts` with adapter-driven state. Sync `publicKey.toBase58()` to the store on connect/disconnect. `autoConnect` = true so the session persists across reloads.
+- Replace `ControlHeader` connect button with `WalletMultiButton` styled to match, or a custom trigger opening the adapter modal (multiple wallets, not just Phantom).
 
-### Layout
+### 2. Fix "paper ↔ live toggle not responding"
+- Root cause candidates I'll verify: (a) `handleMode('live')` early-returns when `liveConfirmed` is already true but `walletConnected` is false, so the button visually looks stuck; (b) `canStart` gate silently blocks Start; (c) mode change doesn't rerun the simulator effect.
+- Fix: separate "enable live" from "switch to live" — toggling to Live is always allowed; the *start* button is what enforces wallet + acknowledgement, with an inline explanatory badge instead of a silent no-op. Add explicit toast when a click is blocked.
+- Simulator hook: gate on `mode === 'paper'` — Phase 3 will branch to real execution for live.
 
-```text
-┌───────────────────────────────────────────────────────────────┐
-│ Sidebar │  Header: Mode toggle (Paper | Live)  •  Kill switch │
-│         ├───────────────────────────────────────────────────── │
-│ Overview│  Status strip: ● Running  Uptime  P&L  Open  Skips  │
-│ Trades  ├──────────────────────┬────────────────────────────── │
-│ Watchlist│ Bankroll / Equity   │  Guardrails                    │
-│ Safety  │  chart + KPIs       │  drawdown, daily loss, size   │
-│ Logs    ├──────────────────────┴────────────────────────────── │
-│ Settings│  Opportunity feed (live table)                       │
-│         │  token • venue • liquidity • safety • confidence     │
-│         ├────────────────────────────────────────────────────── │
-│         │  Open positions           │  Recent decisions log    │
-└─────────┴───────────────────────────┴────────────────────────── ┘
-```
+### 3. DexScreener live feed (real data, not simulated)
+- Those URLs (`api.dexscreener.com/token-profiles/...`) are **HTTPS REST**, not WebSocket. `wss://` will fail. I'll build a **poller** in a server route (`/api/dexscreener/latest`, `/token-boosts/top`, etc.) that:
+  - Fetches every 15–30s server-side (respecting DexScreener's ~60 req/min guidance),
+  - Caches in memory with a short TTL,
+  - Returns to the client with CORS headers.
+- Client subscribes via a `useQuery` with `refetchInterval` and `refetchIntervalInBackground` (survives tab blur). Zustand still holds the derived opportunity feed.
+- Filter incoming tokens through existing `safetyFilters` before they enter the watchlist.
 
-### Sections
+### 4. Persist to Cloud (survives device switch + reloads)
+- New tables (with RLS scoped to `auth.uid()`, GRANTs included):
+  - `profiles(user_id, wallet_address, bankroll_sol, platform_fee_bps, adaptive_sizing, updated_at)`
+  - `trade_history(id, user_id, mode, token, venue, size_sol, entry, exit, pnl_sol, fee_paid_sol, net_to_user_sol, reason, ts, tx_signature nullable)`
+  - `audit_log(id, user_id, type, summary, meta jsonb, ts)`
+  - `watchlist(id, user_id, symbol, mint, venue, source, enabled, safety, liquidity_sol, positive_streak, added_at, note)`
+- Sign-in: email/password + Google (Lovable Cloud managed).
+- Server fns (with `requireSupabaseAuth`): `getProfile`, `upsertProfile`, `listTrades`, `insertTrade`, `listAudit`, `appendAudit`, `syncWatchlist`.
+- Zustand persistence stays as a local cache; a small `useSyncBotState` hook does write-through to server fns.
 
-1. **Header bar**
-   - App logo + name "SniperBot".
-   - Mode segmented control: **Paper** / **Solana Live**. Switching to Live opens a confirmation dialog explaining risk and requiring an explicit "I understand" toggle before enabling.
-   - Big **Start / Stop** button (state-driven: green Start when idle, red Stop when running).
-   - **Kill switch** icon button (immediately halts + closes simulated positions).
+### 5. Resilience baseline (foundation for Phase 3 supervisor)
+- Central `resilientFetch(url, opts, {retries, backoffMs})` with exponential backoff + jitter for all outbound calls (DexScreener, Helius, Jupiter).
+- Simulator watchdog upgraded: instead of resetting to `idle` on error, it flips to a `degraded` badge and keeps the last known good state; only the Stop button transitions to `idle`.
+- Network offline listener → pauses new opportunities but does NOT stop the bot; on `online` event, resumes.
 
-2. **Status strip** (sticky under header)
-   - Run status dot: Idle / Running / Paused / Error with animated pulse when running.
-   - Uptime timer, current mode badge, active venues (Raydium, Pump.fun, BSC).
-   - KPIs: Bankroll (SOL), Session P&L, Open positions, Trades today, Skips today.
+### 6. Auth surface
+- `/auth` public route with email/password + Google sign-in via `lovable.auth.signInWithOAuth`.
+- Dashboard moves under `_authenticated/` layout so trade history and wallet are user-scoped.
 
-3. **Equity & bankroll card**
-   - Sparkline of bankroll over the session (mocked).
-   - Starting bankroll (0.1 SOL for paper), current, peak, drawdown %.
-
-4. **Guardrails card**
-   - Progress bars for: Max position size, Daily loss limit, Drawdown limit, Duplicate-position guard.
-   - Each with current vs. configured cap; turns amber near threshold, red at breach (which auto-pauses the bot in UI).
-
-5. **Opportunity feed table**
-   - Streaming rows (mock ticker) of newly discovered pairs.
-   - Columns: token, venue chip, liquidity, safety score, strategy confidence, decision (Enter / Skip with reason).
-   - Row click → side drawer with full safety checks + strategy rationale.
-
-6. **Open positions table**
-   - Token, entry, current, unrealized P&L, dynamic TP/SL, age, manual close button.
-
-7. **Recent decisions log**
-   - Compact timeline: timestamp, event type (feed / safety / strategy / execution / learning), one-line summary. Filter chips per type.
-
-8. **Sidebar routes** (each its own TanStack route file)
-   - `/` Overview (everything above)
-   - `/trades` full trade history + filters
-   - `/watchlist` curated Solana universe (Live mode) with add/remove and auto-select toggle
-   - `/safety` per-token safety screening detail
-   - `/logs` full decision/execution log with search
-   - `/settings` risk config (caps, limits), venue toggles, auth mode (wallet session vs. secret key — UI only)
-
-### Behavior (UI-level, mocked)
-
-- Start → status flips to Running, uptime ticks, opportunity feed streams mock rows every 1–3s, occasional simulated entries/exits update bankroll and positions.
-- Stop → status flips to Idle, streams pause, open positions remain until manually closed or killed.
-- Kill switch → confirm dialog → force stop + clear open positions with a "flattened" toast.
-- Live-mode gate → cannot Start in Live mode until user confirms risk dialog and a mock "wallet connected" state exists (button in header; purely visual for now).
-- Guardrail breach → toast + auto-pause; Start button disabled until user acknowledges in Settings.
-
-### Design direction
-
-- Dark, dense operator/terminal aesthetic (fits a trading bot). Semantic tokens defined in `src/styles.css`:
-  - Background near-black, elevated cards one step lighter.
-  - Accent: electric green for Running / profit, red for Stop / loss, amber for warnings, cyan for Live-mode chrome.
-  - Mono font (JetBrains Mono via `@fontsource/jetbrains-mono`) for numbers/tickers; Inter for UI text.
-- Subtle pulse on the Running status dot, row-enter animation on the opportunity feed, count-up on KPIs.
-- Uses shadcn primitives already in the project (Card, Table, Badge, Progress, Dialog, Tabs, Sonner toasts, Sidebar).
+### Explicit non-goals for Phase 1
+- No Jupiter quote/swap calls yet.
+- No on-chain transactions signed.
+- No platform-fee routing yet (schema field is there, always 0).
+- `PLATFORM_FEE_WALLET` secret is stored but only surfaced as read-only info in Settings.
 
 ### Technical notes
+- `@solana/web3.js` and wallet adapter packages are browser-safe (no `child_process` etc.), so SSR is fine as long as `Connection` is created client-side or inside a server fn.
+- Helius RPC key stays server-side; browser calls go through `/api/rpc` proxy or through server functions.
+- Jupiter/DexScreener keys likewise proxied.
 
-- New route files:
-  - `src/routes/index.tsx` (replace placeholder with Overview)
-  - `src/routes/trades.tsx`, `watchlist.tsx`, `safety.tsx`, `logs.tsx`, `settings.tsx`
-- Layout via existing shadcn `Sidebar` in `src/routes/__root.tsx` (kept collapsible with visible trigger in header).
-- Mock state in a single `src/lib/bot-store.ts` (Zustand or plain React context + reducer) with a `useBotSimulator` hook that drives the streaming updates via `setInterval` while status is `running`. Cleanly stoppable, all client-side.
-- Types in `src/lib/bot-types.ts` mirroring the repo's domain (Opportunity, SafetyReport, Decision, Position, Guardrails, ModeConfig).
-- Update `__root.tsx` head with real title/description: "SniperBot — Control Dashboard".
-- No backend, no Cloud, no secrets in this pass.
+### Deliverables at end of Phase 1
+- Multi-wallet connect works with real Phantom/Solflare/Backpack.
+- Paper↔Live toggle is responsive with clear feedback.
+- Real DexScreener data flows into the opportunity feed.
+- Trade history + audit log persist across devices for a signed-in user.
+- Bot no longer resets on transient failures — only Stop halts it.
 
-Approve to build, or tell me what to change (scope, sections, style).
+Approve to proceed with Phase 1, or tell me what to change.
