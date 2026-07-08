@@ -15,6 +15,8 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SafetyRouteImport } from './routes/safety'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiRpcRouteImport } from './routes/api/rpc'
+import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
 
 const WatchlistRoute = WatchlistRouteImport.update({
   id: '/watchlist',
@@ -46,6 +48,16 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiRpcRoute = ApiRpcRouteImport.update({
+  id: '/api/rpc',
+  path: '/api/rpc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
+  id: '/api/dexscreener',
+  path: '/api/dexscreener',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -54,6 +66,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
+  '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/rpc': typeof ApiRpcRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +76,8 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
+  '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/rpc': typeof ApiRpcRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,12 +87,30 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
+  '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/rpc': typeof ApiRpcRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/logs' | '/safety' | '/settings' | '/trades' | '/watchlist'
+  fullPaths:
+    | '/'
+    | '/logs'
+    | '/safety'
+    | '/settings'
+    | '/trades'
+    | '/watchlist'
+    | '/api/dexscreener'
+    | '/api/rpc'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/logs' | '/safety' | '/settings' | '/trades' | '/watchlist'
+  to:
+    | '/'
+    | '/logs'
+    | '/safety'
+    | '/settings'
+    | '/trades'
+    | '/watchlist'
+    | '/api/dexscreener'
+    | '/api/rpc'
   id:
     | '__root__'
     | '/'
@@ -85,6 +119,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/trades'
     | '/watchlist'
+    | '/api/dexscreener'
+    | '/api/rpc'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -94,6 +130,8 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TradesRoute: typeof TradesRoute
   WatchlistRoute: typeof WatchlistRoute
+  ApiDexscreenerRoute: typeof ApiDexscreenerRoute
+  ApiRpcRoute: typeof ApiRpcRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -140,6 +178,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/rpc': {
+      id: '/api/rpc'
+      path: '/api/rpc'
+      fullPath: '/api/rpc'
+      preLoaderRoute: typeof ApiRpcRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/dexscreener': {
+      id: '/api/dexscreener'
+      path: '/api/dexscreener'
+      fullPath: '/api/dexscreener'
+      preLoaderRoute: typeof ApiDexscreenerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -150,6 +202,8 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TradesRoute: TradesRoute,
   WatchlistRoute: WatchlistRoute,
+  ApiDexscreenerRoute: ApiDexscreenerRoute,
+  ApiRpcRoute: ApiRpcRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

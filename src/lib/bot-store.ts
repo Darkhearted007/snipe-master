@@ -86,14 +86,21 @@ interface BotState {
   safetyFilters: SafetyFilters;
 
   // Self-healing
-  healthTickErrors: number;
+  healthTickErrors: 0 | number;
   lastHealthAt: number | null;
+  walletName: string | null;
 
   // Actions
   setMode: (m: BotMode) => void;
   confirmLive: () => void;
   connectWallet: () => Promise<void>;
   disconnectWallet: () => void;
+  setWalletFromAdapter: (w: {
+    connected: boolean;
+    connecting: boolean;
+    address: string | null;
+    walletName: string | null;
+  }) => void;
   setUserDeposit: (v: number) => { ok: boolean; error?: string };
   setPlatformFeePct: (v: number) => void;
 
@@ -118,9 +125,12 @@ interface BotState {
   clearLogs: () => void;
   clearHistory: () => void;
 
+  logAudit: (summary: string, type?: DecisionLogEntry["type"]) => void;
+
   tick: () => void;
   healthCheck: () => void;
 }
+
 
 const initialBankroll = 0.1;
 
@@ -200,7 +210,9 @@ const initial = {
 
   healthTickErrors: 0,
   lastHealthAt: null as number | null,
+  walletName: null as string | null,
 };
+
 
 export const useBotStore = create<BotState>()(
   persist(
@@ -209,16 +221,17 @@ export const useBotStore = create<BotState>()(
 
       setMode: (mode) =>
         set((s) => ({
+          // Resilience rule: switching modes never stops a running bot.
+          // Only the Stop button transitions to "idle".
           mode,
-          status: s.status === "running" ? "idle" : s.status,
-          startedAt: null,
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
             type: "audit",
-            summary: `Mode switched to ${mode.toUpperCase()}`,
+            summary: `Mode switched to ${mode.toUpperCase()}${s.status === "running" ? " (bot still running)" : ""}`,
           }).slice(0, MAX_LOG),
         })),
+
 
       confirmLive: () =>
         set((s) => ({
