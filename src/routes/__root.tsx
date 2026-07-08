@@ -24,6 +24,8 @@ import { ControlHeader } from "@/components/control-header";
 import { StatusStrip } from "@/components/status-strip";
 import { Toaster } from "@/components/ui/sonner";
 import { useBotSimulator } from "@/hooks/use-bot-simulator";
+import { SolanaProviders } from "@/lib/solana-provider";
+
 
 function NotFoundComponent() {
   return (
@@ -135,9 +137,11 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
+      <SolanaProviders>
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
+      </SolanaProviders>
       <Toaster theme="dark" />
     </QueryClientProvider>
   );
@@ -158,3 +162,4 @@ function AppLayout({ children }: { children: ReactNode }) {
     </SidebarProvider>
   );
 }
+

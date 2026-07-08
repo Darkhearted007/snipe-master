@@ -86,14 +86,21 @@ interface BotState {
   safetyFilters: SafetyFilters;
 
   // Self-healing
-  healthTickErrors: number;
+  healthTickErrors: 0 | number;
   lastHealthAt: number | null;
+  walletName: string | null;
 
   // Actions
   setMode: (m: BotMode) => void;
   confirmLive: () => void;
   connectWallet: () => Promise<void>;
   disconnectWallet: () => void;
+  setWalletFromAdapter: (w: {
+    connected: boolean;
+    connecting: boolean;
+    address: string | null;
+    walletName: string | null;
+  }) => void;
   setUserDeposit: (v: number) => { ok: boolean; error?: string };
   setPlatformFeePct: (v: number) => void;
 
@@ -118,9 +125,12 @@ interface BotState {
   clearLogs: () => void;
   clearHistory: () => void;
 
+  logAudit: (summary: string, type?: DecisionLogEntry["type"]) => void;
+
   tick: () => void;
   healthCheck: () => void;
 }
+
 
 const initialBankroll = 0.1;
 
@@ -200,7 +210,9 @@ const initial = {
 
   healthTickErrors: 0,
   lastHealthAt: null as number | null,
+  walletName: null as string | null,
 };
+
 
 export const useBotStore = create<BotState>()(
   persist(
@@ -209,16 +221,17 @@ export const useBotStore = create<BotState>()(
 
       setMode: (mode) =>
         set((s) => ({
+          // Resilience rule: switching modes never stops a running bot.
+          // Only the Stop button transitions to "idle".
           mode,
-          status: s.status === "running" ? "idle" : s.status,
-          startedAt: null,
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
             type: "audit",
-            summary: `Mode switched to ${mode.toUpperCase()}`,
+            summary: `Mode switched to ${mode.toUpperCase()}${s.status === "running" ? " (bot still running)" : ""}`,
           }).slice(0, MAX_LOG),
         })),
+
 
       confirmLive: () =>
         set((s) => ({
@@ -271,7 +284,10 @@ export const useBotStore = create<BotState>()(
         set((s) => ({
           walletConnected: false,
           walletAddress: null,
-          status: s.status === "running" && s.mode === "live" ? "idle" : s.status,
+          walletName: null,
+          // Resilience: disconnecting the wallet in live mode no longer
+          // hard-stops the bot — only the Stop button does that. Live mode
+          // will refuse to place *new* orders without a wallet.
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
@@ -279,6 +295,45 @@ export const useBotStore = create<BotState>()(
             summary: "Wallet disconnected",
           }).slice(0, MAX_LOG),
         })),
+
+      setWalletFromAdapter: ({ connected, connecting, address, walletName }) => {
+        const s = get();
+        const changed =
+          s.walletConnected !== connected ||
+          s.walletAddress !== address ||
+          s.walletName !== walletName;
+        set({
+          walletConnected: connected,
+          walletConnecting: connecting,
+          walletAddress: address,
+          walletName,
+          walletError: null,
+        });
+        if (changed) {
+          set((cur) => ({
+            log: prepend(cur.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "wallet",
+              summary:
+                connected && address
+                  ? `Wallet connected · ${walletName ?? "wallet"} · ${shortAddr(address)}`
+                  : "Wallet disconnected",
+            }).slice(0, MAX_LOG),
+          }));
+        }
+      },
+
+      logAudit: (summary, type = "audit") =>
+        set((s) => ({
+          log: prepend(s.log, {
+            id: id(),
+            ts: Date.now(),
+            type,
+            summary,
+          }).slice(0, MAX_LOG),
+        })),
+
 
       setUserDeposit: (v) => {
         if (!Number.isFinite(v) || v < MIN_USER_DEPOSIT_SOL) {
@@ -940,21 +995,23 @@ export const useBotStore = create<BotState>()(
             healthTickErrors: 0,
           });
         } catch (err) {
+          // Resilience rule: transient tick failures NEVER change status.
+          // Only the Stop button transitions the bot to idle.
           const s = get();
           const errors = s.healthTickErrors + 1;
           const msg = err instanceof Error ? err.message : String(err);
           console.error("[bot-store] tick error", err);
           set({
             healthTickErrors: errors,
-            status: errors >= 3 ? "error" : s.status,
             log: prepend(s.log, {
               id: id(),
               ts: Date.now(),
               type: "error",
-              summary: `Tick error (${errors}/3): ${msg}`,
+              summary: `Tick error (recovered, ${errors} total): ${msg}`,
             }).slice(0, MAX_LOG),
           });
         }
+
       },
     }),
     {
@@ -971,12 +1028,10 @@ export const useBotStore = create<BotState>()(
               key: () => null,
             } satisfies Storage),
       ),
-      // persist only the durable slices
+      // persist only the durable slices (wallet state comes from adapter)
       partialize: (s) => ({
         mode: s.mode,
         liveConfirmed: s.liveConfirmed,
-        walletConnected: s.walletConnected,
-        walletAddress: s.walletAddress,
         userDeposit: s.userDeposit,
         bankroll: s.bankroll,
         startBankroll: s.startBankroll,
@@ -992,7 +1047,8 @@ export const useBotStore = create<BotState>()(
         log: s.log,
         tradeHistory: s.tradeHistory,
       }),
-      version: 2,
+      version: 3,
+
       onRehydrateStorage: () => (state) => {
         // Never restore "running" — always start idle so the simulator does not
         // auto-resume without a user click.
