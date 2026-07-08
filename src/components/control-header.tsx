@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { AlertTriangle, Loader2, Play, Power, Square, Wallet } from "lucide-react";
+import { AlertTriangle, Play, Power, Square, Wallet } from "lucide-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +29,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useBotStore } from "@/lib/bot-store";
 import type { BotMode } from "@/lib/bot-types";
+import { useWalletSync } from "@/hooks/use-wallet-sync";
 
 function shortAddr(a: string | null) {
   if (!a) return "";
@@ -34,6 +37,11 @@ function shortAddr(a: string | null) {
 }
 
 export function ControlHeader() {
+  useWalletSync();
+
+  const { publicKey, connected, disconnect, wallet } = useWallet();
+  const { setVisible: openWalletModal } = useWalletModal();
+
   const mode = useBotStore((s) => s.mode);
   const status = useBotStore((s) => s.status);
   const setMode = useBotStore((s) => s.setMode);
@@ -42,52 +50,48 @@ export function ControlHeader() {
   const kill = useBotStore((s) => s.killSwitch);
   const liveConfirmed = useBotStore((s) => s.liveConfirmed);
   const confirmLive = useBotStore((s) => s.confirmLive);
-  const walletConnected = useBotStore((s) => s.walletConnected);
-  const walletAddress = useBotStore((s) => s.walletAddress);
-  const walletConnecting = useBotStore((s) => s.walletConnecting);
-  const walletError = useBotStore((s) => s.walletError);
-  const connectWallet = useBotStore((s) => s.connectWallet);
-  const disconnectWallet = useBotStore((s) => s.disconnectWallet);
   const breached = useBotStore((s) => s.guardrailBreached);
 
   const [liveDialog, setLiveDialog] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [killDialog, setKillDialog] = useState(false);
 
+  const walletAddress = publicKey?.toBase58() ?? null;
+  const walletName = wallet?.adapter.name ?? null;
+
   const handleMode = (m: BotMode) => {
+    if (m === mode) return;
     if (m === "live" && !liveConfirmed) {
       setLiveDialog(true);
       return;
     }
     setMode(m);
+    toast.success(`Switched to ${m.toUpperCase()} mode`, {
+      description:
+        m === "live" && !connected
+          ? "Connect a wallet before pressing Start."
+          : m === "live"
+            ? "Wallet ready — press Start when you want to trade."
+            : "Simulation only — safe to experiment.",
+    });
   };
 
-  const isRunning = status === "running";
-  const canStart =
-    !breached && (mode === "paper" || (liveConfirmed && walletConnected));
+  const isRunning = status === "running" || status === "paused";
+  const startBlockedReason = breached
+    ? "Guardrail breached — acknowledge in Settings."
+    : mode === "live" && !liveConfirmed
+      ? "Enable Live mode acknowledgement first."
+      : mode === "live" && !connected
+        ? "Connect a wallet to start Live mode."
+        : null;
 
   const handleStart = () => {
-    if (!canStart) {
-      toast.error("Cannot start", {
-        description: breached
-          ? "Guardrail breached — acknowledge in Settings."
-          : "Live mode requires wallet connection.",
-      });
+    if (startBlockedReason) {
+      toast.error("Cannot start", { description: startBlockedReason });
       return;
     }
     start();
     toast.success(`Bot running · ${mode.toUpperCase()}`);
-  };
-
-  const handleConnect = async () => {
-    await connectWallet();
-    const err = useBotStore.getState().walletError;
-    if (err) {
-      toast.error("Wallet connect failed", { description: err });
-    } else {
-      const addr = useBotStore.getState().walletAddress;
-      toast.success("Wallet connected", { description: shortAddr(addr) });
-    }
   };
 
   const copyAddress = async () => {
@@ -117,24 +121,34 @@ export function ControlHeader() {
       </div>
 
       {mode === "live" &&
-        (walletConnected && walletAddress ? (
+        (connected && walletAddress ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="sm" className="gap-1.5">
                 <Wallet className="h-3.5 w-3.5" />
                 <span className="font-mono text-xs">{shortAddr(walletAddress)}</span>
+                {walletName && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {walletName}
+                  </span>
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="text-xs">Connected wallet</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs">
+                {walletName ? `${walletName} · connected` : "Connected wallet"}
+              </DropdownMenuLabel>
               <div className="px-2 pb-2 font-mono text-[10px] break-all text-muted-foreground">
                 {walletAddress}
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={copyAddress}>Copy address</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openWalletModal(true)}>
+                Change wallet
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
-                  disconnectWallet();
+                  void disconnect();
                   toast("Wallet disconnected");
                 }}
                 className="text-danger"
@@ -147,36 +161,24 @@ export function ControlHeader() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleConnect}
+            onClick={() => openWalletModal(true)}
             className="gap-1.5"
-            disabled={walletConnecting}
           >
-            {walletConnecting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Wallet className="h-3.5 w-3.5" />
-            )}
-            <span className="font-mono text-xs">
-              {walletConnecting ? "Connecting…" : "Connect wallet"}
-            </span>
+            <Wallet className="h-3.5 w-3.5" />
+            <span className="font-mono text-xs">Connect wallet</span>
           </Button>
         ))}
 
-      {mode === "live" && walletError && !walletConnected && (
-        <Badge variant="destructive" className="gap-1 text-[10px]">
-          <AlertTriangle className="h-3 w-3" /> {walletError}
-        </Badge>
-      )}
-
       <div className="ml-auto flex items-center gap-2">
+        {startBlockedReason && !isRunning && (
+          <Badge variant="secondary" className="hidden gap-1 md:inline-flex">
+            <AlertTriangle className="h-3 w-3 text-warning" />
+            <span className="text-[10px]">{startBlockedReason}</span>
+          </Badge>
+        )}
         {breached && (
           <Badge variant="destructive" className="gap-1">
             <AlertTriangle className="h-3 w-3" /> Guardrail breach
-          </Badge>
-        )}
-        {status === "error" && (
-          <Badge variant="destructive" className="gap-1">
-            <AlertTriangle className="h-3 w-3" /> Recovering
           </Badge>
         )}
         {isRunning ? (
@@ -188,7 +190,6 @@ export function ControlHeader() {
             onClick={handleStart}
             size="sm"
             className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
-            disabled={!canStart}
           >
             <Play className="h-3.5 w-3.5 fill-current" /> Start
           </Button>
@@ -239,7 +240,9 @@ export function ControlHeader() {
                 setMode("live");
                 setLiveDialog(false);
                 toast("Live mode enabled", {
-                  description: "Connect wallet to start.",
+                  description: connected
+                    ? "Wallet ready — press Start when ready."
+                    : "Connect a wallet to start.",
                 });
               }}
             >
@@ -288,6 +291,7 @@ function ModeButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
         "rounded px-3 py-1 text-xs font-medium transition-colors",
