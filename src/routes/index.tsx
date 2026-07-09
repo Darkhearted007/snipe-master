@@ -5,6 +5,7 @@ import { OpportunityFeed } from "@/components/opportunity-feed";
 import { PositionsCard } from "@/components/positions-card";
 import { DecisionsLog } from "@/components/decisions-log";
 import { DexScreenerCard } from "@/components/dexscreener-card";
+import { RiskSettingsCard } from "@/components/risk-settings-card";
 
 export const Route = createFileRoute("/")({
   component: Overview,
