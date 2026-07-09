@@ -14,4 +14,9 @@ export class Client {
 }
 export class CommonClient extends Client {}
 export class WebSocketClient extends Client {}
+export const WebSocket =
+  (typeof globalThis !== "undefined" && (globalThis as { WebSocket?: unknown }).WebSocket) ||
+  class {
+    constructor() {}
+  };
 export default Client;
