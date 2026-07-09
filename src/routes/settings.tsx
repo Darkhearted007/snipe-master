@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { AlertTriangle, Sparkles, Wallet } from "lucide-react";
 import { useBotStore } from "@/lib/bot-store";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "@/lib/bot-types";
+import { RiskSettingsCard } from "@/components/risk-settings-card";
 import type { Venue } from "@/lib/bot-types";
 import { useState } from "react";
 
@@ -111,63 +112,9 @@ function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="lg:col-span-2">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Risk configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Max position size (SOL)"
-            value={guardrails.maxPositionSol}
-            step={0.005}
-            disabled={guardrails.adaptiveSizing}
-            onChange={(v) => setGuardrails({ maxPositionSol: v })}
-          />
-          <Field
-            label="Daily loss limit (%)"
-            value={guardrails.dailyLossLimitPct}
-            step={1}
-            onChange={(v) => setGuardrails({ dailyLossLimitPct: v })}
-          />
-          <Field
-            label="Drawdown limit (%)"
-            value={guardrails.drawdownLimitPct}
-            step={1}
-            onChange={(v) => setGuardrails({ drawdownLimitPct: v })}
-          />
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="adaptive" className="flex items-center gap-1.5">
-                  Agent-decided position size
-                  {guardrails.adaptiveSizing && (
-                    <Badge className="bg-live text-live-foreground text-[10px]">
-                      adaptive
-                    </Badge>
-                  )}
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Overrides max size. Agent sizes 5–40% of bankroll based on
-                  confidence × safety.
-                </p>
-              </div>
-              <Switch
-                id="adaptive"
-                checked={guardrails.adaptiveSizing}
-                onCheckedChange={(v) => setGuardrails({ adaptiveSizing: v })}
-              />
-            </div>
-            <div className="flex items-center justify-between border-t pt-3">
-              <Label htmlFor="dup">Duplicate-position guard</Label>
-              <Switch
-                id="dup"
-                checked={guardrails.duplicateGuard}
-                onCheckedChange={(v) => setGuardrails({ duplicateGuard: v })}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="lg:col-span-2">
+        <RiskSettingsCard />
+      </div>
 
       <Card>
         <CardHeader className="pb-2">

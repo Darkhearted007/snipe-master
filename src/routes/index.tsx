@@ -5,6 +5,7 @@ import { OpportunityFeed } from "@/components/opportunity-feed";
 import { PositionsCard } from "@/components/positions-card";
 import { DecisionsLog } from "@/components/decisions-log";
 import { DexScreenerCard } from "@/components/dexscreener-card";
+import { RiskSettingsCard } from "@/components/risk-settings-card";
 
 export const Route = createFileRoute("/")({
   component: Overview,
@@ -18,7 +19,10 @@ function Overview() {
           <EquityCard />
           <GuardrailsCard />
         </div>
-        <DexScreenerCard />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <RiskSettingsCard />
+          <DexScreenerCard />
+        </div>
         <OpportunityFeed />
         <PositionsCard />
       </div>

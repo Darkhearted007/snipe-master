@@ -1,34 +1,24 @@
-import "../vendor/wallet-adapter.css";
-import { useMemo, type ReactNode } from "react";
-import {
-  ConnectionProvider,
-  WalletProvider,
-} from "@solana/wallet-adapter-react";
-import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 
-// Wallet Standard auto-discovers Phantom, Solflare, Backpack, Coinbase,
-// Trust, Glow, etc. from `window`. We keep the explicit adapters list
-// empty so users see every installed browser wallet without us shipping
-// ledger/hid/webusb native modules.
-const NO_LEGACY_ADAPTERS: [] = [];
-
-function getEndpoint(): string {
-  // Browser calls our server-side Helius proxy so the API key never leaves the sandbox.
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/api/rpc`;
-  }
-  // SSR fallback — never actually used for RPC calls during SSR.
-  return "https://api.mainnet-beta.solana.com";
-}
+// Client-only wrapper. @solana/* pulls rpc-websockets which has no
+// workerd export condition, so it must never enter the SSR bundle.
+// We dynamic-import the real providers on the client after mount.
 
 export function SolanaProviders({ children }: { children: ReactNode }) {
-  const endpoint = useMemo(() => getEndpoint(), []);
-  const wallets = useMemo(() => NO_LEGACY_ADAPTERS, []);
-  return (
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>{children}</WalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
+  const [Providers, setProviders] = useState<ComponentType<{ children: ReactNode }> | null>(
+    null,
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    import("./solana-provider-client").then((m) => {
+      if (!cancelled) setProviders(() => m.SolanaProviders);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!Providers) return <>{children}</>;
+  return <Providers>{children}</Providers>;
 }
