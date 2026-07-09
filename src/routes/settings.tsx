@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { AlertTriangle, Sparkles, Wallet } from "lucide-react";
 import { useBotStore } from "@/lib/bot-store";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "@/lib/bot-types";
+import { RiskSettingsCard } from "@/components/risk-settings-card";
 import type { Venue } from "@/lib/bot-types";
 import { useState } from "react";
 
