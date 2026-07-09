@@ -14,19 +14,19 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
-    environments: {
-      ssr: {
-        resolve: {
-          alias: {
-            // rpc-websockets has no workerd export condition; the SSR bundle
-            // never opens a websocket, so we alias it to a no-op stub.
-            "rpc-websockets": path.resolve(
-              __dirname,
-              "src/vendor/rpc-websockets-stub.ts",
-            ),
-          },
+    resolve: {
+      alias: [
+        {
+          // rpc-websockets has no workerd export condition; the SSR bundle
+          // never opens a websocket (RPC subscriptions run in the browser
+          // via /api/rpc), so alias it to a no-op stub.
+          find: /^rpc-websockets$/,
+          replacement: path.resolve(
+            __dirname,
+            "src/vendor/rpc-websockets-stub.ts",
+          ),
         },
-      },
+      ],
     },
   },
 });
