@@ -69,6 +69,8 @@ export interface WatchEntry {
   positiveStreak: number;
   addedAt: number;
   note?: string;
+  /** Optional Solana SPL mint address — enables per-row rugcheck.xyz lookups. */
+  mintAddress?: string | null;
 }
 
 export interface SafetyFilters {
