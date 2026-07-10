@@ -2,22 +2,16 @@ export type BotMode = "paper" | "live";
 export type BotStatus = "idle" | "running" | "paused" | "error";
 export type Venue = "raydium" | "pumpfun" | "bsc";
 export type DecisionType =
-  | "feed"
-  | "safety"
-  | "strategy"
-  | "execution"
-  | "learning"
-  | "audit"
-  | "wallet"
-  | "error";
+  "feed" | "safety" | "strategy" | "execution" | "learning" | "audit" | "wallet" | "error";
 
 export interface Opportunity {
   id: string;
   ts: number;
   token: string;
+  mint?: string; // real SPL mint address for live-discovered tokens; absent for paper-mode synthetic tokens
   venue: Venue;
   liquiditySol: number;
-  safety: number;
+  safety: number; // -1 = not yet checked; never treat as a passing score
   confidence: number;
   decision: "enter" | "skip";
   reason?: string;
@@ -26,6 +20,7 @@ export interface Opportunity {
 export interface Position {
   id: string;
   token: string;
+  mint?: string;
   venue: Venue;
   entry: number;
   current: number;
@@ -104,6 +99,5 @@ export interface TradeHistoryEntry {
   settledAt?: number;
 }
 
-export const PLATFORM_FEE_WALLET =
-  "CQf2TBVCtKAjJw1mEGpEYPVn7MUgGJ87wP4esHJhftsF";
+export const PLATFORM_FEE_WALLET = "CQf2TBVCtKAjJw1mEGpEYPVn7MUgGJ87wP4esHJhftsF";
 export const MIN_USER_DEPOSIT_SOL = 0.1;

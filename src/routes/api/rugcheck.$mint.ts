@@ -5,6 +5,7 @@
 // Placed under /api/ (not /api/public/) so it inherits the app's default
 // same-origin behavior. External callers don't need this endpoint.
 import { createFileRoute } from "@tanstack/react-router";
+import { evaluateMintSafety } from "@/lib/onchain-safety";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -43,11 +44,30 @@ type SafetyVerdict = {
     topHolderPct: number | null;
     insiderPct: number | null;
   };
+  // Independent, ground-truth signal from direct Solana RPC + a real
+  // Jupiter round-trip quote — not another aggregator's report. Present
+  // whenever the on-chain check completes, regardless of whether rugcheck's
+  // upstream succeeded, so a rugcheck outage never means "no safety data at
+  // all". A hard on-chain failure (active mint/freeze authority, or a
+  // failed honeypot sell-probe) can only pull the combined verdict toward
+  // "danger" — it never gets overridden by a rosier external report.
+  onChain: {
+    score: number;
+    mintAuthorityActive: boolean | null;
+    freezeAuthorityActive: boolean | null;
+    honeypotSellable: boolean | null;
+    lpStatus: string;
+    reasons: string[];
+  } | null;
   risks: Array<{ name: string; level: string; description?: string }>;
   verdict: "safe" | "caution" | "danger" | "unknown";
 };
 
-function summarize(mint: string, r: RugcheckReport): SafetyVerdict {
+function summarize(
+  mint: string,
+  r: RugcheckReport,
+  onChain: SafetyVerdict["onChain"],
+): SafetyVerdict {
   const risks =
     r.risks?.map((x) => ({
       name: x.name ?? "unknown",
@@ -75,12 +95,30 @@ function summarize(mint: string, r: RugcheckReport): SafetyVerdict {
     rawScore == null ? null : Math.max(0, Math.min(100, Math.round(100 - rawScore / 5)));
 
   const dangerCount = risks.filter((x) => x.level === "danger" || x.level === "high").length;
-  const verdict: SafetyVerdict["verdict"] =
-    score == null
+
+  // Combined score: the more conservative (lower) of rugcheck's score and
+  // the on-chain score, when both are available. If rugcheck is down but
+  // on-chain succeeded, on-chain alone still produces a real verdict rather
+  // than falling back to "unknown".
+  const combinedScore =
+    score != null && onChain != null ? Math.min(score, onChain.score) : (onChain?.score ?? score);
+
+  // A hard on-chain red flag (active authority, failed honeypot probe)
+  // forces danger regardless of what rugcheck's aggregated score says —
+  // ground truth overrides a third party's report, not the other way round.
+  const onChainHardFail =
+    onChain != null &&
+    (onChain.mintAuthorityActive === true ||
+      onChain.freezeAuthorityActive === true ||
+      onChain.honeypotSellable === false);
+
+  const verdict: SafetyVerdict["verdict"] = onChainHardFail
+    ? "danger"
+    : combinedScore == null
       ? "unknown"
-      : dangerCount > 0 || score < 40
+      : dangerCount > 0 || combinedScore < 40
         ? "danger"
-        : score < 70
+        : combinedScore < 70
           ? "caution"
           : "safe";
 
@@ -88,7 +126,7 @@ function summarize(mint: string, r: RugcheckReport): SafetyVerdict {
     mint,
     fetchedAt: Date.now(),
     ok: true,
-    score,
+    score: combinedScore,
     rawScore,
     symbol: r.tokenMeta?.symbol ?? null,
     name: r.tokenMeta?.name ?? null,
@@ -102,6 +140,7 @@ function summarize(mint: string, r: RugcheckReport): SafetyVerdict {
     },
     risks,
     verdict,
+    onChain,
   };
 }
 
@@ -118,42 +157,62 @@ export const Route = createFileRoute("/api/rugcheck/$mint")({
             headers: { "Content-Type": "application/json", ...CORS },
           });
         }
-        try {
-          const upstream = await fetch(
-            `https://api.rugcheck.xyz/v1/tokens/${encodeURIComponent(mint)}/report`,
-            { headers: { accept: "application/json" } },
-          );
-          if (!upstream.ok) {
+        const [rugcheckResult, onChainResult] = await Promise.allSettled([
+          fetch(`https://api.rugcheck.xyz/v1/tokens/${encodeURIComponent(mint)}/report`, {
+            headers: { accept: "application/json" },
+          }).then(async (res) => {
+            if (!res.ok) throw new Error(`rugcheck upstream ${res.status}`);
+            return (await res.json()) as RugcheckReport;
+          }),
+          evaluateMintSafety(mint, null),
+        ]);
+
+        const onChain: SafetyVerdict["onChain"] =
+          onChainResult.status === "fulfilled"
+            ? {
+                score: onChainResult.value.score,
+                mintAuthorityActive: onChainResult.value.authority.mintAuthorityActive,
+                freezeAuthorityActive: onChainResult.value.authority.freezeAuthorityActive,
+                honeypotSellable: onChainResult.value.honeypot.sellable,
+                lpStatus: onChainResult.value.lpStatus.lpStatus,
+                reasons: onChainResult.value.reasons,
+              }
+            : null;
+        if (onChainResult.status === "rejected") {
+          console.error("[rugcheck] on-chain evaluation failed", mint, onChainResult.reason);
+        }
+
+        if (rugcheckResult.status === "rejected") {
+          if (!onChain) {
+            // Both signals failed — genuinely nothing to report.
+            const detail =
+              rugcheckResult.reason instanceof Error
+                ? rugcheckResult.reason.message
+                : String(rugcheckResult.reason);
             return new Response(
-              JSON.stringify({
-                ok: false,
-                mint,
-                error: `rugcheck upstream ${upstream.status}`,
-              }),
-              {
-                status: 200, // degrade gracefully; caller shows "unknown" verdict
-                headers: { "Content-Type": "application/json", ...CORS },
-              },
+              JSON.stringify({ ok: false, mint, error: "safety checks unavailable", detail }),
+              { status: 200, headers: { "Content-Type": "application/json", ...CORS } },
             );
           }
-          const json = (await upstream.json()) as RugcheckReport;
-          const verdict = summarize(mint, json);
+          // rugcheck failed but on-chain succeeded — still return a real
+          // verdict built from on-chain data alone rather than "unknown".
+          const verdict = summarize(mint, {}, onChain);
           return new Response(JSON.stringify(verdict), {
             status: 200,
-            headers: {
-              "Content-Type": "application/json",
-              // 60s edge cache so re-checks are cheap
-              "Cache-Control": "public, max-age=60, s-maxage=60",
-              ...CORS,
-            },
+            headers: { "Content-Type": "application/json", ...CORS },
           });
-        } catch (e) {
-          const detail = e instanceof Error ? e.message : String(e);
-          return new Response(
-            JSON.stringify({ ok: false, mint, error: "rugcheck unavailable", detail }),
-            { status: 200, headers: { "Content-Type": "application/json", ...CORS } },
-          );
         }
+
+        const verdict = summarize(mint, rugcheckResult.value, onChain);
+        return new Response(JSON.stringify(verdict), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            // 60s edge cache so re-checks are cheap
+            "Cache-Control": "public, max-age=60, s-maxage=60",
+            ...CORS,
+          },
+        });
       },
     },
   },

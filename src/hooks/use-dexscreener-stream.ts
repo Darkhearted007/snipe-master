@@ -50,9 +50,28 @@ async function fetchPairs(query: string, signal: AbortSignal): Promise<SearchRes
   return (await res.json()) as SearchResponse;
 }
 
+type SafetyVerdictResponse =
+  | { ok: true; score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }
+  | { ok: false; error: string };
+
+/** Calls the existing /api/rugcheck/$mint route, which merges rugcheck.xyz's
+ *  report with a real on-chain check (mint/freeze authority, LP lock/burn,
+ *  honeypot probe) into one verdict. */
+async function fetchSafetyVerdict(
+  mint: string,
+  signal: AbortSignal,
+): Promise<{ score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }> {
+  const res = await fetch(`/api/rugcheck/${encodeURIComponent(mint)}`, { signal });
+  if (!res.ok) throw new Error(`safety check ${res.status}`);
+  const data = (await res.json()) as SafetyVerdictResponse;
+  if (!data.ok) throw new Error(data.error);
+  return { score: data.score, verdict: data.verdict };
+}
+
 export function useDexScreenerStream(enabled: boolean) {
   const logAudit = useBotStore((s) => s.logAudit);
   const pushRealOpportunity = useBotStore((s) => s.pushRealOpportunity);
+  const applySafetyVerdict = useBotStore((s) => s.applySafetyVerdict);
   const timer = useRef<number | null>(null);
   const attempt = useRef(0);
   const announced = useRef(false);
@@ -73,9 +92,7 @@ export function useDexScreenerStream(enabled: boolean) {
       if (cancelled) return;
       const to = window.setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const results = await Promise.allSettled(
-          QUERIES.map((q) => fetchPairs(q, abort.signal)),
-        );
+        const results = await Promise.allSettled(QUERIES.map((q) => fetchPairs(q, abort.signal)));
         window.clearTimeout(to);
         let pushed = 0;
         for (const r of results) {
@@ -86,13 +103,33 @@ export function useDexScreenerStream(enabled: boolean) {
           for (const p of pairs.slice(0, 4)) {
             const symbol = `${p.baseToken?.symbol ?? "?"}/${p.quoteToken?.symbol ?? "?"}`;
             const liquidityUsd = p.liquidity?.usd ?? 0;
-            pushRealOpportunity({
+            const mint = p.baseToken?.address;
+            const oppId = pushRealOpportunity({
               token: p.baseToken?.symbol ?? "UNKNOWN",
               venue: mapVenue(p.dexId),
               symbol,
               liquiditySol: liquidityUsd / 150,
-              tokenAddress: p.baseToken?.address,
+              tokenAddress: mint,
             });
+            if (oppId && mint) {
+              // Fire-and-forget: the opportunity starts as safety=-1/"skip"
+              // and only flips to a real decision once this resolves. Never
+              // await this inline — a slow safety check must not stall
+              // discovery of the next pair.
+              fetchSafetyVerdict(mint, abort.signal)
+                .then((v) => {
+                  applySafetyVerdict({ opportunityId: oppId, score: v.score, verdict: v.verdict });
+                })
+                .catch((e) => {
+                  logStructured(e, {
+                    category: "stream",
+                    severity: "info",
+                    silent: true,
+                    userMessage: `Safety check failed for ${symbol}`,
+                    context: { mint },
+                  });
+                });
+            }
             pushed++;
           }
         }
@@ -139,5 +176,5 @@ export function useDexScreenerStream(enabled: boolean) {
       window.removeEventListener("online", forceRefresh);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [enabled, logAudit, pushRealOpportunity]);
+  }, [enabled, logAudit, pushRealOpportunity, applySafetyVerdict]);
 }

@@ -22,8 +22,20 @@ const MAX_EQUITY = 120;
 const MAX_HISTORY = 200;
 
 const TOKENS = [
-  "PEPE2", "BONKX", "SOLDOG", "MOONR", "WIFHAT", "GIGA", "TURBO",
-  "MYRO", "POPCAT", "BOOK", "SNIP", "ALPHA", "OMEGA", "NOVA",
+  "PEPE2",
+  "BONKX",
+  "SOLDOG",
+  "MOONR",
+  "WIFHAT",
+  "GIGA",
+  "TURBO",
+  "MYRO",
+  "POPCAT",
+  "BOOK",
+  "SNIP",
+  "ALPHA",
+  "OMEGA",
+  "NOVA",
 ];
 
 function rand<T>(arr: T[]): T {
@@ -115,9 +127,12 @@ interface BotState {
   toggleVenue: (v: Venue) => void;
   setGuardrails: (g: Partial<Guardrails>) => void;
 
-  addWatch: (input: { symbol: string; venue: Venue; note?: string; mintAddress?: string | null }) =>
-    | { ok: true }
-    | { ok: false; error: string };
+  addWatch: (input: {
+    symbol: string;
+    venue: Venue;
+    note?: string;
+    mintAddress?: string | null;
+  }) => { ok: true } | { ok: false; error: string };
   removeWatch: (id: string) => void;
   toggleWatch: (id: string) => void;
   promoteAuto: (id: string) => void;
@@ -146,13 +161,22 @@ interface BotState {
   tick: () => void;
   healthCheck: () => void;
 
-  /** Push a real (non-simulated) opportunity from an external stream (DexScreener). */
+  /** Push a real (non-simulated) opportunity from an external stream (DexScreener).
+   *  Returns the new opportunity's id (for chaining a safety check), or null
+   *  if it was filtered out before ever being added. */
   pushRealOpportunity: (input: {
     token: string;
     venue: Venue;
     symbol: string;
     liquiditySol: number;
     tokenAddress?: string;
+  }) => string | null;
+
+  /** Apply a completed safety-check verdict (rugcheck + on-chain) to a real opportunity. */
+  applySafetyVerdict: (input: {
+    opportunityId: string;
+    score: number | null;
+    verdict: "safe" | "caution" | "danger" | "unknown";
   }) => void;
 
   /** Hydrate state from server persistence (called after sign-in). */
@@ -163,7 +187,6 @@ interface BotState {
     watchlist: Array<Record<string, unknown>>;
   }) => void;
 }
-
 
 const initialBankroll = 0.1;
 
@@ -247,7 +270,6 @@ const initial = {
   walletName: null as string | null,
 };
 
-
 export const useBotStore = create<BotState>()(
   persist(
     (set, get) => ({
@@ -265,7 +287,6 @@ export const useBotStore = create<BotState>()(
             summary: `Mode switched to ${mode.toUpperCase()}${s.status === "running" ? " (bot still running)" : ""}`,
           }).slice(0, MAX_LOG),
         })),
-
 
       confirmLive: () =>
         set((s) => ({
@@ -380,8 +401,7 @@ export const useBotStore = create<BotState>()(
             settlementStatus: patch.status,
             feeTxSig: patch.feeTxSig ?? prev.feeTxSig,
             settlementError: patch.error ?? prev.settlementError,
-            settledAt:
-              patch.status === "settled" ? Date.now() : prev.settledAt,
+            settledAt: patch.status === "settled" ? Date.now() : prev.settledAt,
           };
           const nextHistory = s.tradeHistory.slice();
           nextHistory[idx] = updated;
@@ -389,7 +409,7 @@ export const useBotStore = create<BotState>()(
             patch.status === "settled"
               ? `Audit#${tradeId.slice(0, 6)} settled · fee ${prev.feePaidSol.toFixed(5)} SOL → ${shortAddr(prev.feeWallet ?? "?")} · sig ${(patch.feeTxSig ?? "").slice(0, 8)}…`
               : patch.status === "failed"
-                ? `Audit#${tradeId.slice(0, 6)} settlement FAILED · ${patch.error ?? "unknown"} · net retained ${(prev.pnlSol).toFixed(5)} SOL (fee unpaid)`
+                ? `Audit#${tradeId.slice(0, 6)} settlement FAILED · ${patch.error ?? "unknown"} · net retained ${prev.pnlSol.toFixed(5)} SOL (fee unpaid)`
                 : `Audit#${tradeId.slice(0, 6)} settlement ${patch.status}`;
           return {
             tradeHistory: nextHistory,
@@ -429,10 +449,6 @@ export const useBotStore = create<BotState>()(
             }).slice(0, MAX_LOG),
           };
         }),
-
-
-
-
 
       setUserDeposit: (v) => {
         if (!Number.isFinite(v) || v < MIN_USER_DEPOSIT_SOL) {
@@ -608,9 +624,7 @@ export const useBotStore = create<BotState>()(
       setGuardrails: (g) =>
         set((s) => {
           const keys = Object.keys(g) as (keyof Guardrails)[];
-          const summary = keys
-            .map((k) => `${k}=${String(g[k])}`)
-            .join(", ");
+          const summary = keys.map((k) => `${k}=${String(g[k])}`).join(", ");
           return {
             guardrails: { ...s.guardrails, ...g },
             log: prepend(s.log, {
@@ -729,9 +743,7 @@ export const useBotStore = create<BotState>()(
         set((s) => {
           const w = s.watchlist.find((x) => x.id === wid);
           return {
-            watchlist: s.watchlist.map((x) =>
-              x.id === wid ? { ...x, enabled: !x.enabled } : x,
-            ),
+            watchlist: s.watchlist.map((x) => (x.id === wid ? { ...x, enabled: !x.enabled } : x)),
             log: w
               ? prepend(s.log, {
                   id: id(),
@@ -746,9 +758,7 @@ export const useBotStore = create<BotState>()(
         set((s) => {
           const w = s.watchlist.find((x) => x.id === wid);
           return {
-            watchlist: s.watchlist.map((x) =>
-              x.id === wid ? { ...x, source: "manual" } : x,
-            ),
+            watchlist: s.watchlist.map((x) => (x.id === wid ? { ...x, source: "manual" } : x)),
             log: w
               ? prepend(s.log, {
                   id: id(),
@@ -825,9 +835,7 @@ export const useBotStore = create<BotState>()(
           const s = get();
           if (s.status !== "running") return;
 
-          const active = (Object.keys(s.activeVenues) as Venue[]).filter(
-            (v) => s.activeVenues[v],
-          );
+          const active = (Object.keys(s.activeVenues) as Venue[]).filter((v) => s.activeVenues[v]);
           if (active.length === 0) return;
 
           let bankroll = s.bankroll;
@@ -845,8 +853,7 @@ export const useBotStore = create<BotState>()(
             const rr = p.current / p.entry;
             if (rr >= p.tp || rr <= p.sl) {
               const pnl = (p.current - p.entry) * (p.sizeSol / p.entry);
-              const fee =
-                s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
+              const fee = s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
               const net = pnl - fee;
               bankroll += p.sizeSol + net;
               feesAccrued += fee;
@@ -916,8 +923,7 @@ export const useBotStore = create<BotState>()(
             const safety = Math.floor(30 + Math.random() * 70);
             const confidence = Math.floor(20 + Math.random() * 80);
 
-            const failsSafety =
-              safety < sf.minSafety || liquidity < sf.minLiquiditySol;
+            const failsSafety = safety < sf.minSafety || liquidity < sf.minLiquiditySol;
             const inWatchlist = watchlist.some(
               (w) => w.symbol === symbol && w.venue === venue && w.enabled,
             );
@@ -929,9 +935,7 @@ export const useBotStore = create<BotState>()(
               confidence >= 55 &&
               keptPositions.length < 5 &&
               bankroll >= 0.001 &&
-              !keptPositions.some(
-                (p) => p.token === token && s.guardrails.duplicateGuard,
-              );
+              !keptPositions.some((p) => p.token === token && s.guardrails.duplicateGuard);
 
             const reason = shouldEnter
               ? undefined
@@ -981,9 +985,7 @@ export const useBotStore = create<BotState>()(
             });
 
             if (s.autoCurate && !failsSafety) {
-              const existing = watchlist.find(
-                (w) => w.symbol === symbol && w.venue === venue,
-              );
+              const existing = watchlist.find((w) => w.symbol === symbol && w.venue === venue);
               if (existing) {
                 const nextStreak = shouldEnter ? existing.positiveStreak + 1 : 0;
                 watchlist = watchlist.map((w) =>
@@ -1070,8 +1072,7 @@ export const useBotStore = create<BotState>()(
           }
 
           const unrealized = keptPositions.reduce(
-            (acc, p) =>
-              acc + (p.current - p.entry) * (p.sizeSol / p.entry) + p.sizeSol,
+            (acc, p) => acc + (p.current - p.entry) * (p.sizeSol / p.entry) + p.sizeSol,
             0,
           );
           const equityNow = bankroll + unrealized;
@@ -1080,15 +1081,12 @@ export const useBotStore = create<BotState>()(
 
           const peak = Math.max(s.peakBankroll, equityNow);
           const drawdownPct = ((peak - equityNow) / peak) * 100;
-          const dailyLossPct =
-            ((s.startBankroll - equityNow) / s.startBankroll) * 100;
+          const dailyLossPct = ((s.startBankroll - equityNow) / s.startBankroll) * 100;
           const breached =
             drawdownPct > s.guardrails.drawdownLimitPct ||
             dailyLossPct > s.guardrails.dailyLossLimitPct;
 
-          const enters = newLogs.filter((l) =>
-            l.summary.startsWith("Enter "),
-          ).length;
+          const enters = newLogs.filter((l) => l.summary.startsWith("Enter ")).length;
           const skips = newLogs.filter(
             (l) => l.type === "strategy" && l.summary.endsWith("skip"),
           ).length;
@@ -1136,41 +1134,76 @@ export const useBotStore = create<BotState>()(
             }).slice(0, MAX_LOG),
           });
         }
-
       },
 
-      pushRealOpportunity: ({ token, venue, symbol, liquiditySol }) =>
-        set((s) => {
-          const sf = s.safetyFilters;
-          if (liquiditySol < sf.minLiquiditySol) {
-            return {
-              log: prepend(s.log, {
-                id: id(),
-                ts: Date.now(),
-                type: "safety",
-                summary: `${symbol} FILTERED · liquidity ${liquiditySol.toFixed(2)}<${sf.minLiquiditySol} SOL`,
-              }).slice(0, MAX_LOG),
-            };
-          }
-          const opp: Opportunity = {
-            id: id(),
-            ts: Date.now(),
-            token,
-            venue,
-            liquiditySol,
-            safety: Math.floor(60 + Math.random() * 40),
-            confidence: Math.floor(50 + Math.random() * 50),
-            decision: "enter",
-          };
-          const opportunities = [opp, ...s.opportunities];
+      pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress }) => {
+        const s = get();
+        const sf = s.safetyFilters;
+        if (liquiditySol < sf.minLiquiditySol) {
+          set((st) => ({
+            log: prepend(st.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "safety",
+              summary: `${symbol} FILTERED · liquidity ${liquiditySol.toFixed(2)}<${sf.minLiquiditySol} SOL`,
+            }).slice(0, MAX_LOG),
+          }));
+          return null;
+        }
+        // Real, discovered token: safety is UNKNOWN until an actual check
+        // (rugcheck + on-chain) completes. -1 / "skip" is the honest
+        // default — never assign a random score or auto-enter a live
+        // opportunity nobody has verified. The safety-check hook applies
+        // the real verdict via applySafetyVerdict once it resolves.
+        const oppId = id();
+        const opp: Opportunity = {
+          id: oppId,
+          ts: Date.now(),
+          token,
+          mint: tokenAddress,
+          venue,
+          liquiditySol,
+          safety: -1,
+          confidence: 0,
+          decision: "skip",
+          reason: "awaiting safety check",
+        };
+        set((st) => {
+          const opportunities = [opp, ...st.opportunities];
           if (opportunities.length > MAX_FEED) opportunities.length = MAX_FEED;
           return {
             opportunities,
-            log: prepend(s.log, {
+            log: prepend(st.log, {
               id: id(),
               ts: Date.now(),
               type: "feed",
               summary: `Live · ${symbol} @ ${venue} · liq ${liquiditySol.toFixed(2)} SOL`,
+            }).slice(0, MAX_LOG),
+          };
+        });
+        return oppId;
+      },
+
+      applySafetyVerdict: ({ opportunityId, score, verdict }) =>
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          if (!opp) return {};
+          const sf = s.safetyFilters;
+          const passes =
+            score != null && score >= sf.minSafety && verdict !== "danger" && verdict !== "unknown";
+          const updated: Opportunity = {
+            ...opp,
+            safety: score ?? -1,
+            decision: passes ? "enter" : "skip",
+            reason: passes ? undefined : `safety verdict: ${verdict} (${score ?? "n/a"})`,
+          };
+          return {
+            opportunities: s.opportunities.map((o) => (o.id === opportunityId ? updated : o)),
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "safety",
+              summary: `${opp.token} safety check → ${verdict} (${score ?? "n/a"}/100)`,
             }).slice(0, MAX_LOG),
           };
         }),
@@ -1195,10 +1228,16 @@ export const useBotStore = create<BotState>()(
               patch.guardrails = { ...s.guardrails, ...(st.guardrails as Partial<Guardrails>) };
             }
             if (st.safetyFilters && typeof st.safetyFilters === "object") {
-              patch.safetyFilters = { ...s.safetyFilters, ...(st.safetyFilters as Partial<SafetyFilters>) };
+              patch.safetyFilters = {
+                ...s.safetyFilters,
+                ...(st.safetyFilters as Partial<SafetyFilters>),
+              };
             }
             if (st.activeVenues && typeof st.activeVenues === "object") {
-              patch.activeVenues = { ...s.activeVenues, ...(st.activeVenues as Record<Venue, boolean>) };
+              patch.activeVenues = {
+                ...s.activeVenues,
+                ...(st.activeVenues as Record<Venue, boolean>),
+              };
             }
             if (typeof st.autoCurate === "boolean") patch.autoCurate = st.autoCurate;
           }
@@ -1213,12 +1252,12 @@ export const useBotStore = create<BotState>()(
               entry: Number(t.entry ?? 0),
               exit: Number(t.exit ?? 0),
               pnlSol: Number(t.pnl_sol ?? 0),
-              reason: (String(t.reason ?? "manual") as TradeHistoryEntry["reason"]),
+              reason: String(t.reason ?? "manual") as TradeHistoryEntry["reason"],
               feePaidSol: Number(t.fee_paid_sol ?? 0),
               netToUserSol: Number(t.net_to_user_sol ?? 0),
               feeWallet: (t.fee_wallet as string | undefined) ?? undefined,
               settlementStatus:
-                ((t.settlement_status as TradeHistoryEntry["settlementStatus"]) ?? "n/a"),
+                (t.settlement_status as TradeHistoryEntry["settlementStatus"]) ?? "n/a",
               feeTxSig: (t.fee_tx_sig as string | undefined) ?? undefined,
             }));
           }
@@ -1235,7 +1274,7 @@ export const useBotStore = create<BotState>()(
               id: String(w.id ?? id()),
               symbol: String(w.symbol ?? ""),
               venue: (w.venue as Venue) ?? "raydium",
-              source: ((w.source as WatchSource) ?? "manual"),
+              source: (w.source as WatchSource) ?? "manual",
               enabled: w.enabled !== false,
               safety: Number(w.safety ?? 0),
               liquiditySol: Number(w.liquidity_sol ?? 0),
