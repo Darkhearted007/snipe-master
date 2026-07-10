@@ -438,6 +438,7 @@ export const useBotStore = create<BotState>()(
             reason: "kill",
             feePaidSol: 0,
             netToUserSol: (p.current - p.entry) * (p.sizeSol / p.entry),
+            settlementStatus: "n/a",
           }));
           return {
             status: "idle",
