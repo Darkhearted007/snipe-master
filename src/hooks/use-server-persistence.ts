@@ -11,6 +11,16 @@ import {
 } from "@/lib/persistence.functions";
 import { logStructured } from "@/lib/structured-logger";
 import { retryWithBackoff, isPermanentError } from "@/lib/retry-backoff";
+import { supabase } from "@/integrations/supabase/client";
+
+async function hasSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return !!data.session?.access_token;
+  } catch {
+    return false;
+  }
+}
 
 const SETTINGS_KEYS = [
   "mode",
