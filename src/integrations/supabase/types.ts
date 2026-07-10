@@ -207,6 +207,7 @@ export type Database = {
           enabled: boolean
           id: string
           liquidity_sol: number
+          mint_address: string | null
           note: string | null
           positive_streak: number
           safety: number
@@ -222,6 +223,7 @@ export type Database = {
           enabled?: boolean
           id?: string
           liquidity_sol?: number
+          mint_address?: string | null
           note?: string | null
           positive_streak?: number
           safety?: number
@@ -237,6 +239,7 @@ export type Database = {
           enabled?: boolean
           id?: string
           liquidity_sol?: number
+          mint_address?: string | null
           note?: string | null
           positive_streak?: number
           safety?: number
