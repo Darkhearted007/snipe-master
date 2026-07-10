@@ -29,7 +29,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useBotStore } from "@/lib/bot-store";
 import type { BotMode } from "@/lib/bot-types";
-import { useWalletSync } from "@/hooks/use-wallet-sync";
+import { useWalletSync, safeReadWallet } from "@/hooks/use-wallet-sync";
 
 function shortAddr(a: string | null) {
   if (!a) return "";
