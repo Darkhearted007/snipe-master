@@ -29,10 +29,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { CheckCircle2, Filter, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Filter, Loader2, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
 import { useBotStore } from "@/lib/bot-store";
 import type { Venue, WatchSource } from "@/lib/bot-types";
 import { cn } from "@/lib/utils";
+import { isSafetyVerdict, useTokenSafety } from "@/hooks/use-token-safety";
 
 export const Route = createFileRoute("/watchlist")({
   head: () => ({ meta: [{ title: "Watchlist — SniperBot" }] }),
