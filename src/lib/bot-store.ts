@@ -768,7 +768,7 @@ export const useBotStore = create<BotState>()(
               bankroll += p.sizeSol + net;
               feesAccrued += fee;
               const reason: TradeHistoryEntry["reason"] = rr >= p.tp ? "tp" : "sl";
-              newHistory.push({
+              const tradeEntry: TradeHistoryEntry = {
                 id: id(),
                 ts: Date.now(),
                 mode: s.mode,
@@ -782,12 +782,25 @@ export const useBotStore = create<BotState>()(
                 feePaidSol: fee,
                 netToUserSol: net,
                 feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
-              });
+                settlementStatus: fee > 0 ? "pending" : "n/a",
+              };
+              newHistory.push(tradeEntry);
               newLogs.push({
                 id: id(),
                 ts: Date.now(),
                 type: "execution",
                 summary: `Exit ${p.token} @ ${reason.toUpperCase()} · ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+              });
+              // Profit audit trail — pre-settlement snapshot (paper or live).
+              newLogs.push({
+                id: id(),
+                ts: Date.now(),
+                type: "audit",
+                summary:
+                  `Audit#${tradeEntry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · ` +
+                  `pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · ` +
+                  `fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · ` +
+                  `net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
               });
               if (fee > 0) {
                 newLogs.push({
