@@ -103,6 +103,7 @@ interface BotState {
     address: string | null;
     walletName: string | null;
   }) => void;
+  setWalletBalance: (sol: number | null) => void;
   setUserDeposit: (v: number) => { ok: boolean; error?: string };
   setPlatformFeePct: (v: number) => void;
 
