@@ -1,11 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SafetyVerdict } from "@/routes/api/rugcheck.$mint";
 
+type ErrorPayload = { ok: false; error: string; mint: string };
+type SafetyResponse = SafetyVerdict | ErrorPayload;
+
+export function isSafetyVerdict(r: SafetyResponse | undefined): r is SafetyVerdict {
+  return !!r && r.ok === true;
+}
+
 /** Fetch real on-chain safety verdict for a Solana mint via rugcheck.xyz.
  *  Returns undefined while loading; a `{ ok: false }` object on upstream
  *  failure so the UI can show "unknown" without throwing. */
 export function useTokenSafety(mint: string | null | undefined) {
-  return useQuery<SafetyVerdict | { ok: false; error: string; mint: string }>({
+  return useQuery<SafetyResponse>({
     queryKey: ["safety", mint],
     enabled: !!mint && mint.length >= 32,
     staleTime: 60_000,

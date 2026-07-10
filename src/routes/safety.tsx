@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useBotStore } from "@/lib/bot-store";
-import { useTokenSafety } from "@/hooks/use-token-safety";
+import { useTokenSafety, isSafetyVerdict } from "@/hooks/use-token-safety";
 import type { SafetyVerdict } from "@/routes/api/rugcheck.$mint";
 import { cn } from "@/lib/utils";
 
@@ -159,7 +159,7 @@ function SafetyResult({
   }
   const data = query.data;
   if (!data) return null;
-  if (!data.ok) {
+  if (!isSafetyVerdict(data)) {
     return (
       <Alert>
         <ShieldQuestion className="h-4 w-4" />
