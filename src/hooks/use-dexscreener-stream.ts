@@ -3,25 +3,34 @@ import { useBotStore } from "@/lib/bot-store";
 import { logStructured } from "@/lib/structured-logger";
 import { computeBackoff } from "@/lib/retry-backoff";
 
-// DexScreener WSS streams. Browsers connect directly — no CORS on WSS,
-// no auth needed. Each feed is a separate socket; we reconnect with
-// full-jitter exponential backoff and use a heartbeat watchdog to force
-// reconnect when the server goes silent (common on flaky mobile links).
-const FEEDS = [
-  "wss://io.dexscreener.com/dex/screener/pairs/h24/1?rankBy[key]=trendingScoreH6&rankBy[order]=desc",
-  "wss://io.dexscreener.com/dex/screener/pairs/m5/1?rankBy[key]=pairAge&rankBy[order]=asc",
-] as const;
+/**
+ * DexScreener live feed.
+ *
+ * We previously connected to `wss://io.dexscreener.com/...` directly, but that
+ * socket is DexScreener's internal transport — it rejects cross-origin browser
+ * connections and closes immediately, causing an endless reconnect loop.
+ *
+ * The supported public surface is the REST API at `api.dexscreener.com`, which
+ * is CORS-open. We poll a small set of Solana-focused endpoints on an interval
+ * and push new pairs into the opportunity feed. Polling is resilient: failures
+ * back off with jitter, `online` / `visibilitychange` events force a refresh.
+ */
+const POLL_INTERVAL_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 10_000;
 
-const HEARTBEAT_TIMEOUT_MS = 45_000; // no message for 45s → reconnect
+// Trending-ish Solana queries. DexScreener's public search endpoint accepts
+// arbitrary terms; these surface active SOL pairs across major venues.
+const QUERIES = ["SOL", "raydium", "pumpfun"] as const;
 
-type PairMsg = {
+type SearchResponse = {
   pairs?: Array<{
     chainId?: string;
+    dexId?: string;
     baseToken?: { symbol?: string; address?: string };
     quoteToken?: { symbol?: string };
     liquidity?: { usd?: number };
     priceUsd?: string;
-    dexId?: string;
+    pairCreatedAt?: number;
   }>;
 };
 
@@ -32,159 +41,103 @@ function mapVenue(dexId?: string): "raydium" | "pumpfun" | "bsc" {
   return "raydium";
 }
 
-/** Streams real DexScreener pair updates into the bot's opportunity feed.
- *  No-op unless the bot is running in live mode. Never blocks the loop. */
+async function fetchPairs(query: string, signal: AbortSignal): Promise<SearchResponse> {
+  const res = await fetch(
+    `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`,
+    { signal, headers: { accept: "application/json" } },
+  );
+  if (!res.ok) throw new Error(`dexscreener ${res.status}`);
+  return (await res.json()) as SearchResponse;
+}
+
 export function useDexScreenerStream(enabled: boolean) {
   const logAudit = useBotStore((s) => s.logAudit);
   const pushRealOpportunity = useBotStore((s) => s.pushRealOpportunity);
-  const sockets = useRef<Map<string, WebSocket>>(new Map());
-  const retries = useRef<Record<string, number>>({});
-  const reconnectTimers = useRef<Map<string, number>>(new Map());
-  const heartbeatTimers = useRef<Map<string, number>>(new Map());
+  const timer = useRef<number | null>(null);
+  const attempt = useRef(0);
+  const announced = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    const abort = new AbortController();
 
-    const clearHeartbeat = (url: string) => {
-      const t = heartbeatTimers.current.get(url);
-      if (t) window.clearTimeout(t);
-    };
-    const armHeartbeat = (url: string, ws: WebSocket) => {
-      clearHeartbeat(url);
-      const t = window.setTimeout(() => {
-        // Server went silent — treat as dead and let onclose reconnect.
-        logStructured(new Error("stream heartbeat timeout"), {
-          category: "stream",
-          severity: "warning",
-          silent: true,
-          context: { url, timeoutMs: HEARTBEAT_TIMEOUT_MS },
-        });
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
-      }, HEARTBEAT_TIMEOUT_MS);
-      heartbeatTimers.current.set(url, t as unknown as number);
-    };
-
-    const scheduleReconnect = (url: string) => {
-      if (cancelled) return;
-      const attempt = (retries.current[url] ?? 0) + 1;
-      retries.current[url] = attempt;
-      const backoff = computeBackoff(attempt, { baseMs: 1_000, maxMs: 30_000 });
-      logStructured(new Error(`stream closed (attempt ${attempt})`), {
-        category: "stream",
-        severity: attempt >= 3 ? "warning" : "info",
-        silent: attempt < 3,
-        userMessage: `Live market stream disconnected — retrying in ${Math.round(backoff / 1000)}s`,
-        context: { url, attempt, backoffMs: backoff },
-      });
-      const timer = window.setTimeout(() => open(url), backoff);
-      reconnectTimers.current.set(url, timer as unknown as number);
-    };
-
-    const open = (url: string) => {
-      if (cancelled) return;
-      // Drop any previous socket for this url before opening a new one.
-      const prev = sockets.current.get(url);
-      if (prev && prev.readyState <= 1) {
-        try {
-          prev.close();
-        } catch {
-          /* ignore */
-        }
+    const clearTimer = () => {
+      if (timer.current != null) {
+        window.clearTimeout(timer.current);
+        timer.current = null;
       }
-      let ws: WebSocket;
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      const to = window.setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
       try {
-        ws = new WebSocket(url);
-      } catch (e) {
-        logStructured(e, { category: "stream", context: { url, phase: "open" } });
-        scheduleReconnect(url);
-        return;
-      }
-      sockets.current.set(url, ws);
-
-      ws.onopen = () => {
-        retries.current[url] = 0;
-        logAudit(`DexScreener stream connected`, "audit");
-        armHeartbeat(url, ws);
-      };
-      ws.onmessage = (ev) => {
-        armHeartbeat(url, ws);
-        try {
-          const data = JSON.parse(String(ev.data)) as PairMsg;
-          if (!data.pairs?.length) return;
-          for (const p of data.pairs.slice(0, 5)) {
+        const results = await Promise.allSettled(
+          QUERIES.map((q) => fetchPairs(q, abort.signal)),
+        );
+        window.clearTimeout(to);
+        let pushed = 0;
+        for (const r of results) {
+          if (r.status !== "fulfilled") continue;
+          const pairs = (r.value.pairs ?? []).filter(
+            (p) => p.chainId === "solana" && p.baseToken?.address,
+          );
+          for (const p of pairs.slice(0, 4)) {
             const symbol = `${p.baseToken?.symbol ?? "?"}/${p.quoteToken?.symbol ?? "?"}`;
             const liquidityUsd = p.liquidity?.usd ?? 0;
-            const liquiditySol = liquidityUsd / 150;
             pushRealOpportunity({
               token: p.baseToken?.symbol ?? "UNKNOWN",
               venue: mapVenue(p.dexId),
               symbol,
-              liquiditySol,
+              liquiditySol: liquidityUsd / 150,
               tokenAddress: p.baseToken?.address,
             });
+            pushed++;
           }
-        } catch {
-          /* ignore malformed */
         }
-      };
-      ws.onclose = () => {
-        clearHeartbeat(url);
-        sockets.current.delete(url);
-        scheduleReconnect(url);
-      };
-      ws.onerror = () => {
-        // onclose fires next and handles reconnect + logging.
-      };
+        attempt.current = 0;
+        if (!announced.current && pushed > 0) {
+          announced.current = true;
+          logAudit("DexScreener live feed connected (REST poll)", "audit");
+        }
+        if (!cancelled) {
+          timer.current = window.setTimeout(tick, POLL_INTERVAL_MS) as unknown as number;
+        }
+      } catch (e) {
+        window.clearTimeout(to);
+        if (cancelled) return;
+        const n = (attempt.current += 1);
+        const backoff = computeBackoff(n, { baseMs: 2_000, maxMs: 60_000 });
+        logStructured(e, {
+          category: "stream",
+          severity: n >= 3 ? "warning" : "info",
+          silent: n < 3,
+          userMessage: `Live market feed error — retrying in ${Math.round(backoff / 1000)}s`,
+          context: { attempt: n, backoffMs: backoff },
+        });
+        timer.current = window.setTimeout(tick, backoff) as unknown as number;
+      }
     };
 
-    const onOnline = () => {
-      // Network came back — reset backoff and force-reconnect everything.
-      for (const url of FEEDS) {
-        retries.current[url] = 0;
-        const t = reconnectTimers.current.get(url);
-        if (t) window.clearTimeout(t);
-        open(url);
-      }
+    const forceRefresh = () => {
+      clearTimer();
+      void tick();
     };
     const onVisibility = () => {
-      if (document.visibilityState !== "visible") return;
-      // Tab came back — verify sockets are alive, otherwise reconnect.
-      for (const url of FEEDS) {
-        const ws = sockets.current.get(url);
-        if (!ws || ws.readyState > 1) {
-          const t = reconnectTimers.current.get(url);
-          if (t) window.clearTimeout(t);
-          open(url);
-        }
-      }
+      if (document.visibilityState === "visible") forceRefresh();
     };
 
-    for (const url of FEEDS) open(url);
-    window.addEventListener("online", onOnline);
+    void tick();
+    window.addEventListener("online", forceRefresh);
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("online", onOnline);
+      clearTimer();
+      abort.abort();
+      window.removeEventListener("online", forceRefresh);
       document.removeEventListener("visibilitychange", onVisibility);
-      for (const t of reconnectTimers.current.values()) window.clearTimeout(t);
-      for (const t of heartbeatTimers.current.values()) window.clearTimeout(t);
-      reconnectTimers.current.clear();
-      heartbeatTimers.current.clear();
-      for (const ws of sockets.current.values()) {
-        try {
-          ws.close();
-        } catch {
-          /* ignore */
-        }
-      }
-      sockets.current.clear();
     };
   }, [enabled, logAudit, pushRealOpportunity]);
 }
-
