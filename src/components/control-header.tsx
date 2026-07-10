@@ -94,53 +94,15 @@ export function ControlHeader() {
       </div>
 
       {mode === "live" &&
-        (connected && walletAddress ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" className="gap-1.5">
-                <Wallet className="h-3.5 w-3.5" />
-                <span className="font-mono text-xs">{shortAddr(walletAddress)}</span>
-                {walletName && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {walletName}
-                  </span>
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="text-xs">
-                {walletName ? `${walletName} · connected` : "Connected wallet"}
-              </DropdownMenuLabel>
-              <div className="px-2 pb-2 font-mono text-[10px] break-all text-muted-foreground">
-                {walletAddress}
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={copyAddress}>Copy address</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openWalletModal(true)}>
-                Change wallet
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  void disconnect();
-                  toast("Wallet disconnected");
-                }}
-                className="text-danger"
-              >
-                Disconnect
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        (walletReady ? (
+          <WalletBar />
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openWalletModal(true)}
-            className="gap-1.5"
-          >
+          <Button variant="outline" size="sm" disabled className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" />
-            <span className="font-mono text-xs">Connect wallet</span>
+            <span className="font-mono text-xs">Loading wallet…</span>
           </Button>
         ))}
+
 
       <div className="ml-auto flex items-center gap-2">
         {startBlockedReason && !isRunning && (
