@@ -94,8 +94,8 @@ function SafetyPage() {
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Live data via rugcheck.xyz — mint/freeze authority, LP lock, top
-            holder concentration, and risk flags.
+            Live data via rugcheck.xyz — mint/freeze authority, LP lock, top holder concentration,
+            and risk flags.
           </p>
         </CardContent>
       </Card>
@@ -154,10 +154,7 @@ function WatchlistSafetyCard({
           <span className="font-mono">{symbol}</span>
           <div className="flex items-center gap-1.5">
             {!mint && (
-              <Badge
-                variant="secondary"
-                className="text-[9px] uppercase text-muted-foreground"
-              >
+              <Badge variant="secondary" className="text-[9px] uppercase text-muted-foreground">
                 rugcheck disabled
               </Badge>
             )}
@@ -171,12 +168,9 @@ function WatchlistSafetyCard({
         {!mint ? (
           <div className="rounded-md border border-dashed border-warning/40 bg-warning/5 px-3 py-4 text-center">
             <Info className="mx-auto mb-1.5 h-4 w-4 text-warning" />
-            <div className="text-[11px] font-medium text-warning">
-              Mint address required
-            </div>
+            <div className="text-[11px] font-medium text-warning">Mint address required</div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Add a Solana mint to this watchlist entry to enable Rugcheck safety
-              screening.
+              Add a Solana mint to this watchlist entry to enable Rugcheck safety screening.
             </p>
             <Button
               type="button"
@@ -247,19 +241,12 @@ function WatchlistSafetyCard({
   );
 }
 
-function SafetyResult({
-  query,
-  mint,
-}: {
-  query: ReturnType<typeof useTokenSafety>;
-  mint: string;
-}) {
+function SafetyResult({ query, mint }: { query: ReturnType<typeof useTokenSafety>; mint: string }) {
   if (query.isLoading) {
     return (
       <Card>
         <CardContent className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Fetching on-chain safety
-          data…
+          <Loader2 className="h-4 w-4 animate-spin" /> Fetching on-chain safety data…
         </CardContent>
       </Card>
     );
@@ -268,9 +255,7 @@ function SafetyResult({
     return (
       <Alert variant="destructive">
         <AlertTitle>Safety check failed</AlertTitle>
-        <AlertDescription className="text-xs">
-          {(query.error as Error).message}
-        </AlertDescription>
+        <AlertDescription className="text-xs">{(query.error as Error).message}</AlertDescription>
       </Alert>
     );
   }
@@ -282,9 +267,8 @@ function SafetyResult({
         <ShieldQuestion className="h-4 w-4" />
         <AlertTitle>Verdict unavailable</AlertTitle>
         <AlertDescription className="text-xs">
-          Rugcheck did not return a report for{" "}
-          <span className="font-mono break-all">{mint}</span>. This may be an
-          unindexed or invalid mint.
+          Rugcheck did not return a report for <span className="font-mono break-all">{mint}</span>.
+          This may be an unindexed or invalid mint.
         </AlertDescription>
       </Alert>
     );
@@ -300,11 +284,7 @@ function SafetyResult({
           ? "border-warning/40 bg-warning/5"
           : "";
   const VerdictIcon =
-    v.verdict === "safe"
-      ? ShieldCheck
-      : v.verdict === "danger"
-        ? ShieldAlert
-        : ShieldQuestion;
+    v.verdict === "safe" ? ShieldCheck : v.verdict === "danger" ? ShieldAlert : ShieldQuestion;
 
   return (
     <Card className={cn(verdictTone)}>
@@ -376,11 +356,7 @@ function SafetyResult({
           />
           <Row
             k="Top holder"
-            v={
-              v.flags.topHolderPct == null
-                ? "—"
-                : `${v.flags.topHolderPct.toFixed(1)}%`
-            }
+            v={v.flags.topHolderPct == null ? "—" : `${v.flags.topHolderPct.toFixed(1)}%`}
             tone={
               v.flags.topHolderPct == null
                 ? undefined
@@ -393,11 +369,7 @@ function SafetyResult({
           />
           <Row
             k="Insider hold"
-            v={
-              v.flags.insiderPct == null
-                ? "—"
-                : `${v.flags.insiderPct.toFixed(1)}%`
-            }
+            v={v.flags.insiderPct == null ? "—" : `${v.flags.insiderPct.toFixed(1)}%`}
             tone={
               v.flags.insiderPct == null
                 ? undefined
@@ -433,9 +405,7 @@ function SafetyResult({
                     </Badge>
                   </div>
                   {r.description && (
-                    <div className="mt-0.5 text-muted-foreground">
-                      {r.description}
-                    </div>
+                    <div className="mt-0.5 text-muted-foreground">{r.description}</div>
                   )}
                 </li>
               ))}
@@ -443,9 +413,7 @@ function SafetyResult({
           </div>
         )}
 
-        <p className="pt-1 font-mono text-[10px] text-muted-foreground break-all">
-          {v.mint}
-        </p>
+        <p className="pt-1 font-mono text-[10px] text-muted-foreground break-all">{v.mint}</p>
       </CardContent>
     </Card>
   );
