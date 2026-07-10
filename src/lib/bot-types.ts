@@ -79,6 +79,8 @@ export interface SafetyFilters {
   maxHolderConcentrationPct: number;
 }
 
+export type SettlementStatus = "n/a" | "pending" | "settled" | "failed";
+
 export interface TradeHistoryEntry {
   id: string;
   ts: number;
@@ -93,6 +95,11 @@ export interface TradeHistoryEntry {
   feePaidSol: number; // platform fee routed on profit
   netToUserSol: number; // pnl after fee (only live)
   feeWallet?: string;
+  // Profit audit trail — populated as on-chain settlement progresses.
+  settlementStatus: SettlementStatus;
+  feeTxSig?: string;
+  settlementError?: string;
+  settledAt?: number;
 }
 
 export const PLATFORM_FEE_WALLET =
