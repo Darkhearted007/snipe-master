@@ -172,7 +172,7 @@ function SafetyResult({
     );
   }
 
-  const v = data;
+  const v = data as Extract<typeof data, { ok: true }>;
   const verdictTone =
     v.verdict === "safe"
       ? "border-success/40 bg-success/5"
