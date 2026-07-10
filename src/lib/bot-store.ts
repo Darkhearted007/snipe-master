@@ -363,6 +363,40 @@ export const useBotStore = create<BotState>()(
           }).slice(0, MAX_LOG),
         })),
 
+      setTradeSettlement: (tradeId, patch) =>
+        set((s) => {
+          const idx = s.tradeHistory.findIndex((t) => t.id === tradeId);
+          if (idx < 0) return {};
+          const prev = s.tradeHistory[idx];
+          const updated: TradeHistoryEntry = {
+            ...prev,
+            settlementStatus: patch.status,
+            feeTxSig: patch.feeTxSig ?? prev.feeTxSig,
+            settlementError: patch.error ?? prev.settlementError,
+            settledAt:
+              patch.status === "settled" ? Date.now() : prev.settledAt,
+          };
+          const nextHistory = s.tradeHistory.slice();
+          nextHistory[idx] = updated;
+          const auditLine =
+            patch.status === "settled"
+              ? `Audit#${tradeId.slice(0, 6)} settled · fee ${prev.feePaidSol.toFixed(5)} SOL → ${shortAddr(prev.feeWallet ?? "?")} · sig ${(patch.feeTxSig ?? "").slice(0, 8)}…`
+              : patch.status === "failed"
+                ? `Audit#${tradeId.slice(0, 6)} settlement FAILED · ${patch.error ?? "unknown"} · net retained ${(prev.pnlSol).toFixed(5)} SOL (fee unpaid)`
+                : `Audit#${tradeId.slice(0, 6)} settlement ${patch.status}`;
+          return {
+            tradeHistory: nextHistory,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: patch.status === "failed" ? "error" : "audit",
+              summary: auditLine,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
+
+
 
       setUserDeposit: (v) => {
         if (!Number.isFinite(v) || v < MIN_USER_DEPOSIT_SOL) {
