@@ -40,8 +40,6 @@ export function ControlHeader() {
   const [acknowledged, setAcknowledged] = useState(false);
   const [killDialog, setKillDialog] = useState(false);
 
-  const walletAddress = publicKey?.toBase58() ?? null;
-  const walletName = wallet?.adapter.name ?? null;
 
   const handleMode = (m: BotMode) => {
     if (m === mode) return;
