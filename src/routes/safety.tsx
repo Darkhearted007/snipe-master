@@ -35,7 +35,7 @@ export const Route = createFileRoute("/safety")({
 function SafetyPage() {
   const [input, setInput] = useState("");
   const [mint, setMint] = useState<string | null>(null);
-  const opps = useBotStore((s) => s.opportunities);
+  const watchlist = useBotStore((s) => s.watchlist);
   const safety = useTokenSafety(mint);
 
   const submit = (val: string) => {
@@ -96,37 +96,119 @@ function SafetyPage() {
 
       <div>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Recently screened by the bot
+          Watchlist safety
         </h2>
-        {opps.length === 0 ? (
+        {watchlist.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center text-xs text-muted-foreground">
-              No screened tokens yet
+              No watchlist entries yet
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {opps.slice(0, 12).map((o) => (
-              <Card key={o.id}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center justify-between text-sm">
-                    <span className="font-mono">{o.token}</span>
-                    <Badge variant="outline" className="text-[10px] uppercase">
-                      {o.venue}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-xs">
-                  <Row k="Safety score" v={`${o.safety}/100`} tone={tone(o.safety)} />
-                  <Row k="Confidence" v={`${o.confidence}%`} tone={tone(o.confidence)} />
-                  <Row k="Liquidity" v={`${o.liquiditySol.toFixed(2)} SOL`} />
-                </CardContent>
-              </Card>
+            {watchlist.slice(0, 12).map((w) => (
+              <WatchlistSafetyCard
+                key={w.id}
+                symbol={w.symbol}
+                venue={w.venue}
+                mint={w.mintAddress ?? null}
+                fallbackSafety={w.safety}
+                onInspect={(m) => {
+                  setInput(m);
+                  setMint(m);
+                }}
+              />
             ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function WatchlistSafetyCard({
+  symbol,
+  venue,
+  mint,
+  fallbackSafety,
+  onInspect,
+}: {
+  symbol: string;
+  venue: string;
+  mint: string | null;
+  fallbackSafety: number;
+  onInspect: (mint: string) => void;
+}) {
+  const q = useTokenSafety(mint);
+  const verdict = isSafetyVerdict(q.data) ? q.data : null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between text-sm">
+          <span className="font-mono">{symbol}</span>
+          <Badge variant="outline" className="text-[10px] uppercase">
+            {venue}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-xs">
+        {!mint ? (
+          <div className="rounded-md border border-dashed bg-muted/20 px-2 py-3 text-center text-[11px] text-muted-foreground">
+            No mint address on file — add one to enable rugcheck
+          </div>
+        ) : q.isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Fetching rugcheck…
+          </div>
+        ) : q.isError ? (
+          <div className="text-danger">Fetch failed</div>
+        ) : verdict ? (
+          <>
+            <Row
+              k="Rugcheck score"
+              v={verdict.score == null ? "—" : `${verdict.score}/100`}
+              tone={verdict.score == null ? undefined : tone(verdict.score)}
+            />
+            <Row
+              k="Verdict"
+              v={verdict.verdict}
+              tone={
+                verdict.verdict === "safe"
+                  ? "text-success"
+                  : verdict.verdict === "danger"
+                    ? "text-danger"
+                    : "text-warning"
+              }
+            />
+            <Row
+              k="Risk flags"
+              v={verdict.risks.length.toString()}
+              tone={
+                verdict.risks.length === 0
+                  ? "text-success"
+                  : verdict.risks.length > 3
+                    ? "text-danger"
+                    : "text-warning"
+              }
+            />
+          </>
+        ) : (
+          <Row k="Bot safety" v={`${fallbackSafety}/100`} tone={tone(fallbackSafety)} />
+        )}
+        {mint && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full h-7 text-[11px]"
+            onClick={() => onInspect(mint)}
+          >
+            Inspect
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
