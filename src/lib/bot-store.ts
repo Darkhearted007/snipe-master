@@ -4,6 +4,7 @@ import type {
   BotMode,
   BotStatus,
   DecisionLogEntry,
+  DiscoveryCandidate,
   EquityPoint,
   Guardrails,
   Opportunity,
@@ -56,6 +57,11 @@ function mockAddress() {
 function shortAddr(a: string) {
   return a.length > 10 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a;
 }
+function venueFromDiscovery(v: string): Venue {
+  if (v === "solana/raydium") return "raydium";
+  if (v === "solana/pump.fun") return "pumpfun";
+  return "raydium"; // unknown venue defaults to the most conservative bucket
+}
 
 interface BotState {
   mode: BotMode;
@@ -93,6 +99,10 @@ interface BotState {
   log: DecisionLogEntry[];
   tradeHistory: TradeHistoryEntry[];
 
+  // Real Helius-webhook-sourced candidates for LIVE mode. Empty in paper
+  // mode, which keeps generating synthetic opportunities for practice.
+  discoveryCandidates: DiscoveryCandidate[];
+
   activeVenues: Record<Venue, boolean>;
 
   watchlist: WatchEntry[];
@@ -121,6 +131,7 @@ interface BotState {
 
   start: () => void;
   stop: () => void;
+  resetSession: (newBankroll?: number) => void;
   killSwitch: () => void;
   acknowledgeBreach: () => void;
   closePosition: (id: string) => void;
@@ -225,6 +236,7 @@ const initial = {
   guardrailBreached: false,
 
   opportunities: [] as Opportunity[],
+  discoveryCandidates: [] as DiscoveryCandidate[],
   positions: [] as Position[],
   log: [] as DecisionLogEntry[],
   tradeHistory: [] as TradeHistoryEntry[],
@@ -509,6 +521,31 @@ export const useBotStore = create<BotState>()(
             summary: "Bot stopped",
           }).slice(0, MAX_LOG),
         })),
+      // Explicit, separate from stop(): stop() must NEVER silently clear a
+      // guardrail breach or wipe P&L history. Starting a fresh session is a
+      // deliberate user action with its own audit log line.
+      resetSession: (newBankroll?: number) =>
+        set((s) => {
+          const v = newBankroll ?? s.userDeposit;
+          return {
+            status: "idle",
+            bankroll: v,
+            startBankroll: v,
+            peakBankroll: v,
+            positions: [],
+            equity: [{ ts: Date.now(), value: v }] as EquityPoint[],
+            sessionPnl: 0,
+            tradesToday: 0,
+            skipsToday: 0,
+            guardrailBreached: false,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "audit",
+              summary: `Session reset · new bankroll ${v.toFixed(3)} SOL`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
       killSwitch: () =>
         set((s) => {
           const flatHistory: TradeHistoryEntry[] = s.positions.map((p) => ({
@@ -830,6 +867,81 @@ export const useBotStore = create<BotState>()(
         set({ lastHealthAt: Date.now() });
       },
 
+      setDiscoveryCandidates: (rows) => set({ discoveryCandidates: rows }),
+
+      requestLiveEntry: (opportunityId) => {
+        const s = get();
+        const opp = s.opportunities.find((o) => o.id === opportunityId);
+        if (!opp) return { ok: false, error: "Opportunity not found" };
+        if (s.mode !== "live") return { ok: false, error: "Not in live mode" };
+        if (s.guardrailBreached)
+          return { ok: false, error: "Guardrail breach active — resolve before trading" };
+        if (!s.walletConnected) return { ok: false, error: "Wallet not connected" };
+        if (!opp.mint) return { ok: false, error: "No mint address on this opportunity" };
+        if (opp.safety == null || opp.safety < s.safetyFilters.minSafety) {
+          return { ok: false, error: "Safety score missing or below threshold" };
+        }
+        if (s.guardrails.duplicateGuard && s.positions.some((p) => p.mint === opp.mint)) {
+          return { ok: false, error: "Already holding a position in this mint" };
+        }
+        const bankrollForSize = Math.max(0, s.bankroll);
+        if (bankrollForSize < 0.001) return { ok: false, error: "Bankroll too low" };
+        const sizeSol = s.guardrails.adaptiveSizing
+          ? Math.min(bankrollForSize * 0.2, bankrollForSize * 0.5)
+          : Math.min(s.guardrails.maxPositionSol, bankrollForSize * 0.5);
+        if (sizeSol <= 0) return { ok: false, error: "Computed size is zero" };
+        return { ok: true, sizeSol };
+      },
+
+      // Called only after a real swap has been signed, sent, AND confirmed
+      // on-chain (see useLiveExecution). Bankroll only ever moves here for
+      // live trades — tick() never touches it in live mode.
+      confirmLiveEntry: ({ opportunityId, sizeSol, signature }) =>
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          if (!opp || !opp.mint) return {};
+          const position: Position = {
+            id: id(),
+            token: opp.token,
+            mint: opp.mint,
+            decimals: opp.decimals,
+            venue: opp.venue,
+            entry: 1,
+            current: 1,
+            sizeSol,
+            tp: 1.35,
+            sl: 0.85,
+            openedAt: Date.now(),
+            live: true,
+            entrySignature: signature,
+          };
+          const bankroll = Math.max(0, s.bankroll - sizeSol);
+          return {
+            bankroll,
+            positions: [...s.positions, position],
+            tradesToday: s.tradesToday + 1,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "execution",
+              summary: `LIVE fill · ${opp.token} · ${sizeSol.toFixed(5)} SOL · sig ${shortAddr(signature)}`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
+      failLiveEntry: ({ opportunityId, reason }) =>
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          return {
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "error",
+              summary: `LIVE entry failed · ${opp?.token ?? opportunityId} · ${reason}`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
       tick: () => {
         try {
           const s = get();
@@ -839,7 +951,13 @@ export const useBotStore = create<BotState>()(
           if (active.length === 0) return;
 
           let bankroll = s.bankroll;
+          // Live positions are real, on-chain fills — they must NEVER get
+          // synthetic price drift or a fake auto-close. Until real price
+          // polling + real sell-swap exits are wired (tracked separately),
+          // live positions just pass through untouched each tick; closing
+          // them is a manual action that will route through a real swap.
           const positions = s.positions.map((p) => {
+            if (p.live) return p;
             const drift = (Math.random() - 0.48) * 0.05;
             return { ...p, current: Math.max(0.0000001, p.current * (1 + drift)) };
           });
@@ -850,6 +968,10 @@ export const useBotStore = create<BotState>()(
           let feesAccrued = 0;
 
           for (const p of positions) {
+            if (p.live) {
+              keptPositions.push(p);
+              continue;
+            }
             const rr = p.current / p.entry;
             if (rr >= p.tp || rr <= p.sl) {
               const pnl = (p.current - p.entry) * (p.sizeSol / p.entry);
@@ -915,7 +1037,7 @@ export const useBotStore = create<BotState>()(
           let watchlist = s.watchlist;
           const sf = s.safetyFilters;
 
-          if (Math.random() < 0.75) {
+          if (s.mode === "paper" && Math.random() < 0.75) {
             const token = rand(TOKENS) + Math.floor(Math.random() * 99);
             const venue = rand(active);
             const symbol = `${token}/SOL`;
@@ -927,11 +1049,9 @@ export const useBotStore = create<BotState>()(
             const inWatchlist = watchlist.some(
               (w) => w.symbol === symbol && w.venue === venue && w.enabled,
             );
-            const liveGated = s.mode === "live" && !inWatchlist;
 
             const shouldEnter =
               !failsSafety &&
-              !liveGated &&
               confidence >= 55 &&
               keptPositions.length < 5 &&
               bankroll >= 0.001 &&
@@ -943,11 +1063,9 @@ export const useBotStore = create<BotState>()(
                 ? safety < sf.minSafety
                   ? `safety<${sf.minSafety}`
                   : `liquidity<${sf.minLiquiditySol}`
-                : liveGated
-                  ? "not in watchlist"
-                  : confidence < 55
-                    ? "low confidence"
-                    : "risk cap";
+                : confidence < 55
+                  ? "low confidence"
+                  : "risk cap";
 
             const opp: Opportunity = {
               id: id(),
@@ -1027,7 +1145,9 @@ export const useBotStore = create<BotState>()(
 
             if (shouldEnter) {
               // Adaptive sizing: agent chooses size based on confidence & safety,
-              // otherwise clamp to maxPositionSol.
+              // otherwise clamp to maxPositionSol. PAPER MODE ONLY — bankroll
+              // is fake here. Live mode never reaches this branch; real fills
+              // only ever happen via confirmLiveEntry after an on-chain confirm.
               const bankrollForSize = Math.max(0, bankroll);
               let size: number;
               let agentSized = false;
@@ -1068,6 +1188,50 @@ export const useBotStore = create<BotState>()(
                   summary: `Enter ${token} · size ${size.toFixed(5)} SOL${agentSized ? " (agent)" : ""}`,
                 });
               }
+            }
+          } else if (s.mode === "live") {
+            // Real candidates only, sourced from the Helius webhook via
+            // setDiscoveryCandidates(). No synthetic tokens, no auto-fill —
+            // this branch only ever surfaces opportunities for the UI to
+            // present; actual entry requires requestLiveEntry() + a real
+            // wallet-signed swap via useLiveExecution, then confirmLiveEntry().
+            const known = new Set(opportunities.map((o) => o.mint).filter(Boolean));
+            const candidate = s.discoveryCandidates.find((c) => !known.has(c.mint));
+            if (candidate) {
+              const venue = venueFromDiscovery(candidate.venue);
+              const liquidity = (candidate.liquidity_usd ?? 0) / 150; // rough USD->SOL, real price feed TODO
+              // safety_score is NULL until the safety pipeline (ported
+              // separately from SolanaSafetyProvider) actually checks this
+              // mint. NULL must never be treated as safe.
+              const failsSafety =
+                candidate.safety_score == null || candidate.safety_score < sf.minSafety;
+              const reason = failsSafety
+                ? candidate.safety_score == null
+                  ? "awaiting safety check"
+                  : `safety<${sf.minSafety}`
+                : undefined;
+
+              const opp: Opportunity = {
+                id: id(),
+                ts: Date.now(),
+                token: candidate.symbol,
+                mint: candidate.mint,
+                decimals: candidate.decimals,
+                venue,
+                liquiditySol: liquidity,
+                safety: candidate.safety_score ?? -1,
+                confidence: 0, // no live confidence engine ported yet
+                decision: failsSafety ? "skip" : "skip", // never auto-enter in live mode; see requestLiveEntry
+                reason: reason ?? "manual review required",
+              };
+              opportunities.unshift(opp);
+              if (opportunities.length > MAX_FEED) opportunities.length = MAX_FEED;
+              newLogs.push({
+                id: id(),
+                ts: Date.now(),
+                type: "feed",
+                summary: `${opp.token} discovered on ${venue} (real, mint ${candidate.mint.slice(0, 4)}..${candidate.mint.slice(-4)})`,
+              });
             }
           }
 

@@ -29,6 +29,8 @@ export interface Position {
   sl: number;
   openedAt: number;
   agentSized?: boolean;
+  live?: boolean; // true once a real entry swap has been confirmed on-chain
+  entrySignature?: string;
 }
 
 export interface DecisionLogEntry {

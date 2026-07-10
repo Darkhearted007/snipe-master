@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -19,6 +20,60 @@ import {
 import { useBotStore } from "@/lib/bot-store";
 import type { Opportunity } from "@/lib/bot-types";
 import { cn } from "@/lib/utils";
+import { useLiveExecution } from "@/hooks/use-live-execution";
+import { SOL_MINT } from "@/lib/jupiter";
+
+const LAMPORTS_PER_SOL = 1_000_000_000;
+
+function ExecuteButton({ opp }: { opp: Opportunity }) {
+  const mode = useBotStore((s) => s.mode);
+  const requestLiveEntry = useBotStore((s) => s.requestLiveEntry);
+  const confirmLiveEntry = useBotStore((s) => s.confirmLiveEntry);
+  const failLiveEntry = useBotStore((s) => s.failLiveEntry);
+  const { executeSwap, walletReady } = useLiveExecution();
+  const [busy, setBusy] = useState(false);
+
+  if (mode !== "live" || !opp.mint) return null;
+
+  const gate = requestLiveEntry(opp.id);
+
+  return (
+    <Button
+      size="sm"
+      variant={gate.ok ? "default" : "secondary"}
+      disabled={!gate.ok || !walletReady || busy}
+      title={gate.ok ? undefined : gate.error}
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (!gate.ok) return;
+        setBusy(true);
+        try {
+          const result = await executeSwap({
+            inputMint: SOL_MINT,
+            outputMint: opp.mint!,
+            amountLamports: Math.floor(gate.sizeSol * LAMPORTS_PER_SOL),
+            slippageBps: 300,
+            maxPriceImpactPct: 15,
+          });
+          confirmLiveEntry({
+            opportunityId: opp.id,
+            sizeSol: gate.sizeSol,
+            signature: result.signature,
+          });
+        } catch (err) {
+          failLiveEntry({
+            opportunityId: opp.id,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? "Executing…" : "Execute"}
+    </Button>
+  );
+}
 
 export function OpportunityFeed() {
   const opps = useBotStore((s) => s.opportunities);
@@ -29,9 +84,7 @@ export function OpportunityFeed() {
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">
           Opportunity Feed
-          <span className="ml-2 font-mono text-xs text-muted-foreground">
-            {opps.length} pairs
-          </span>
+          <span className="ml-2 font-mono text-xs text-muted-foreground">{opps.length} pairs</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
@@ -46,12 +99,16 @@ export function OpportunityFeed() {
                 <TableHead className="text-right">Safety</TableHead>
                 <TableHead className="text-right">Conf</TableHead>
                 <TableHead>Decision</TableHead>
+                <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {opps.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-xs text-muted-foreground">
+                  <TableCell
+                    colSpan={8}
+                    className="py-10 text-center text-xs text-muted-foreground"
+                  >
                     No opportunities yet · start the bot
                   </TableCell>
                 </TableRow>
@@ -65,9 +122,7 @@ export function OpportunityFeed() {
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {new Date(o.ts).toLocaleTimeString([], { hour12: false })}
                   </TableCell>
-                  <TableCell className="font-mono text-xs font-semibold">
-                    {o.token}
-                  </TableCell>
+                  <TableCell className="font-mono text-xs font-semibold">{o.token}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-[10px] uppercase">
                       {o.venue}
@@ -79,7 +134,9 @@ export function OpportunityFeed() {
                   <TableCell className={cn("text-right font-mono text-xs", scoreTone(o.safety))}>
                     {o.safety}
                   </TableCell>
-                  <TableCell className={cn("text-right font-mono text-xs", scoreTone(o.confidence))}>
+                  <TableCell
+                    className={cn("text-right font-mono text-xs", scoreTone(o.confidence))}
+                  >
                     {o.confidence}
                   </TableCell>
                   <TableCell>
@@ -90,6 +147,9 @@ export function OpportunityFeed() {
                         SKIP
                       </Badge>
                     )}
+                  </TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <ExecuteButton opp={o} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -105,8 +165,7 @@ export function OpportunityFeed() {
               <SheetHeader>
                 <SheetTitle className="font-mono">{selected.token}</SheetTitle>
                 <SheetDescription>
-                  {selected.venue.toUpperCase()} ·{" "}
-                  {new Date(selected.ts).toLocaleString()}
+                  {selected.venue.toUpperCase()} · {new Date(selected.ts).toLocaleString()}
                 </SheetDescription>
               </SheetHeader>
               <div className="mt-6 space-y-4 px-4 text-sm">
@@ -121,12 +180,15 @@ export function OpportunityFeed() {
                 {selected.reason && <Row k="Reason" v={selected.reason} />}
                 <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
                   <div className="mb-1 font-semibold text-foreground">Safety checks</div>
-                  <ul className="space-y-0.5">
-                    <li>· Contract verified</li>
-                    <li>· LP locked / burned</li>
-                    <li>· Honeypot simulation passed</li>
-                    <li>· Top holder concentration &lt; 25%</li>
-                  </ul>
+                  {selected.mint ? (
+                    <p>
+                      {selected.safety === -1
+                        ? "Not yet checked — no safety pipeline has scored this mint. Treated as unsafe until it is."
+                        : `Safety score ${selected.safety}/100 from the last check.`}
+                    </p>
+                  ) : (
+                    <p>Paper-mode simulated opportunity — not a real token.</p>
+                  )}
                 </div>
               </div>
             </>
@@ -143,15 +205,7 @@ function scoreTone(n: number) {
   return "text-danger";
 }
 
-function Row({
-  k,
-  v,
-  tone,
-}: {
-  k: string;
-  v: string;
-  tone?: "success" | "muted";
-}) {
+function Row({ k, v, tone }: { k: string; v: string; tone?: "success" | "muted" }) {
   return (
     <div className="flex items-center justify-between border-b pb-2">
       <span className="text-xs uppercase tracking-wider text-muted-foreground">{k}</span>

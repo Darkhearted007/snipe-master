@@ -18,6 +18,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiRpcRouteImport } from './routes/api/rpc'
+import { Route as ApiDiscoveryRouteImport } from './routes/api/discovery'
 import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
 import { Route as ApiRugcheckMintRouteImport } from './routes/api/rugcheck.$mint'
 import { Route as ApiJupiterSwapRouteImport } from './routes/api/jupiter/swap'
@@ -68,6 +69,11 @@ const ApiRpcRoute = ApiRpcRouteImport.update({
   path: '/api/rpc',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDiscoveryRoute = ApiDiscoveryRouteImport.update({
+  id: '/api/discovery',
+  path: '/api/discovery',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
   id: '/api/dexscreener',
   path: '/api/dexscreener',
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/discovery': typeof ApiDiscoveryRoute
   '/api/rpc': typeof ApiRpcRoute
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/discovery': typeof ApiDiscoveryRoute
   '/api/rpc': typeof ApiRpcRoute
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/discovery': typeof ApiDiscoveryRoute
   '/api/rpc': typeof ApiRpcRoute
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/trades'
     | '/watchlist'
     | '/api/dexscreener'
+    | '/api/discovery'
     | '/api/rpc'
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
@@ -162,6 +172,7 @@ export interface FileRouteTypes {
     | '/trades'
     | '/watchlist'
     | '/api/dexscreener'
+    | '/api/discovery'
     | '/api/rpc'
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/trades'
     | '/watchlist'
     | '/api/dexscreener'
+    | '/api/discovery'
     | '/api/rpc'
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
@@ -193,6 +205,7 @@ export interface RootRouteChildren {
   TradesRoute: typeof TradesRoute
   WatchlistRoute: typeof WatchlistRoute
   ApiDexscreenerRoute: typeof ApiDexscreenerRoute
+  ApiDiscoveryRoute: typeof ApiDiscoveryRoute
   ApiRpcRoute: typeof ApiRpcRoute
   ApiJupiterQuoteRoute: typeof ApiJupiterQuoteRoute
   ApiJupiterSwapRoute: typeof ApiJupiterSwapRoute
@@ -264,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiRpcRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/discovery': {
+      id: '/api/discovery'
+      path: '/api/discovery'
+      fullPath: '/api/discovery'
+      preLoaderRoute: typeof ApiDiscoveryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/dexscreener': {
       id: '/api/dexscreener'
       path: '/api/dexscreener'
@@ -305,6 +325,7 @@ const rootRouteChildren: RootRouteChildren = {
   TradesRoute: TradesRoute,
   WatchlistRoute: WatchlistRoute,
   ApiDexscreenerRoute: ApiDexscreenerRoute,
+  ApiDiscoveryRoute: ApiDiscoveryRoute,
   ApiRpcRoute: ApiRpcRoute,
   ApiJupiterQuoteRoute: ApiJupiterQuoteRoute,
   ApiJupiterSwapRoute: ApiJupiterSwapRoute,

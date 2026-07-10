@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useBotStore } from "@/lib/bot-store";
+import { useDiscoveryFeed } from "./use-discovery-feed";
 
 /**
  * Drives the simulator tick + resilient watchdog.
@@ -14,9 +15,18 @@ import { useBotStore } from "@/lib/bot-store";
  */
 export function useBotSimulator() {
   const status = useBotStore((s) => s.status);
+  const mode = useBotStore((s) => s.mode);
   const tick = useBotStore((s) => s.tick);
   const healthCheck = useBotStore((s) => s.healthCheck);
   const logAudit = useBotStore((s) => s.logAudit);
+  const setDiscoveryCandidates = useBotStore((s) => s.setDiscoveryCandidates);
+
+  // Real Helius-webhook-sourced candidates — only polled in live mode while
+  // running. Paper mode keeps generating its own synthetic feed in tick().
+  const discovery = useDiscoveryFeed(mode === "live" && status !== "idle");
+  useEffect(() => {
+    if (discovery.data) setDiscoveryCandidates(discovery.data);
+  }, [discovery.data, setDiscoveryCandidates]);
 
   useEffect(() => {
     if (status === "idle") return;
@@ -27,7 +37,7 @@ export function useBotSimulator() {
         tick();
       } catch (err) {
         // Never propagate — resilience rule: keep looping.
-        // eslint-disable-next-line no-console
+
         console.error("[simulator] tick threw", err);
       }
     }, 1500);
@@ -42,7 +52,6 @@ export function useBotSimulator() {
       try {
         healthCheck();
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error("[simulator] health check failed", err);
       }
     }, 5000);
@@ -51,10 +60,7 @@ export function useBotSimulator() {
 
   useEffect(() => {
     const onOffline = () =>
-      logAudit(
-        "Network offline · bot continues on cached state; new feed suspended",
-        "error",
-      );
+      logAudit("Network offline · bot continues on cached state; new feed suspended", "error");
     const onOnline = () => {
       logAudit("Network restored · resuming feed", "audit");
       try {
