@@ -58,6 +58,7 @@ function WatchlistPage() {
   const [symbol, setSymbol] = useState("");
   const [venue, setVenue] = useState<Venue>("raydium");
   const [note, setNote] = useState("");
+  const [mintAddress, setMintAddress] = useState("");
   const [tab, setTab] = useState<WatchSource | "all">("all");
 
   const filtered = useMemo(
@@ -70,7 +71,19 @@ function WatchlistPage() {
   const enabledCount = watchlist.filter((w) => w.enabled).length;
 
   const handleAdd = () => {
-    const res = addWatch({ symbol, venue, note: note || undefined });
+    const mint = mintAddress.trim();
+    if (mint && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
+      toast.error("Invalid mint address", {
+        description: "Must be a base58 Solana mint (32–44 chars).",
+      });
+      return;
+    }
+    const res = addWatch({
+      symbol,
+      venue,
+      note: note || undefined,
+      mintAddress: mint || null,
+    });
     if (!res.ok) {
       toast.error("Rejected by safety filter", { description: res.error });
       return;
@@ -80,6 +93,7 @@ function WatchlistPage() {
     });
     setSymbol("");
     setNote("");
+    setMintAddress("");
   };
 
   return (
@@ -214,10 +228,18 @@ function WatchlistPage() {
               </SelectContent>
             </Select>
             <Input
+              placeholder="Mint address (optional, Solana base58)"
+              value={mintAddress}
+              onChange={(e) => setMintAddress(e.target.value)}
+              className="w-72 font-mono"
+              maxLength={44}
+            />
+            <Input
               placeholder="Note (optional)"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="flex-1 min-w-40"
+              maxLength={200}
             />
             <Button onClick={handleAdd}>Add</Button>
           </div>
