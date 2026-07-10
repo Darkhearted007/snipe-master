@@ -1,6 +1,5 @@
-import { useContext, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Play, Power, Square, Wallet } from "lucide-react";
-import { WalletModalContext } from "@solana/wallet-adapter-react-ui";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,14 +12,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -28,19 +19,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useBotStore } from "@/lib/bot-store";
 import type { BotMode } from "@/lib/bot-types";
-import { useWalletSync, safeReadWallet } from "@/hooks/use-wallet-sync";
-
-function shortAddr(a: string | null) {
-  if (!a) return "";
-  return `${a.slice(0, 4)}…${a.slice(-4)}`;
-}
+import { useWalletReady } from "@/lib/solana-provider";
+import { WalletBar } from "@/components/wallet-bar";
 
 export function ControlHeader() {
-  useWalletSync();
-
-  const { publicKey, connected, disconnect, wallet } = safeReadWallet();
-  const modalCtx = useContext(WalletModalContext);
-  const openWalletModal = (v: boolean) => modalCtx?.setVisible(v);
+  const walletReady = useWalletReady();
+  const connected = useBotStore((s) => s.walletConnected);
 
   const mode = useBotStore((s) => s.mode);
   const status = useBotStore((s) => s.status);
