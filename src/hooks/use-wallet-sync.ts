@@ -1,18 +1,22 @@
-import { useEffect } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useContext, useEffect } from "react";
+import { WalletContext } from "@solana/wallet-adapter-react";
 import { useBotStore } from "@/lib/bot-store";
 
-/** Mirror the real wallet-adapter state into the Zustand store. */
+/** Mirror the real wallet-adapter state into the Zustand store.
+ *  Uses useContext directly so it no-ops (instead of throwing) when
+ *  the client-only SolanaProviders hasn't mounted yet. */
 export function useWalletSync() {
-  const { publicKey, connected, connecting, wallet } = useWallet();
+  const ctx = useContext(WalletContext);
   const setWalletFromAdapter = useBotStore((s) => s.setWalletFromAdapter);
 
+  const publicKey = ctx?.publicKey ?? null;
+  const connected = ctx?.connected ?? false;
+  const connecting = ctx?.connecting ?? false;
+  const walletName = ctx?.wallet?.adapter.name ?? null;
+  const address = publicKey ? publicKey.toBase58() : null;
+
   useEffect(() => {
-    setWalletFromAdapter({
-      connected,
-      connecting,
-      address: publicKey ? publicKey.toBase58() : null,
-      walletName: wallet?.adapter.name ?? null,
-    });
-  }, [publicKey, connected, connecting, wallet, setWalletFromAdapter]);
+    if (!ctx) return;
+    setWalletFromAdapter({ connected, connecting, address, walletName });
+  }, [ctx, connected, connecting, address, walletName, setWalletFromAdapter]);
 }
