@@ -43,6 +43,28 @@ async function hasSession(): Promise<boolean> {
   }
 }
 
+/** Sentinel thrown when a persistence call is attempted without a session.
+ *  Callers swallow it silently — it is the hard guard, not an error. */
+class NoSessionError extends Error {
+  constructor() {
+    super("persistence skipped: no session");
+    this.name = "NoSessionError";
+  }
+}
+function isNoSession(e: unknown): boolean {
+  return e instanceof NoSessionError;
+}
+
+/** Hard-guard wrapper: every persistence serverFn is routed through this.
+ *  If there is no Supabase session at call time, the serverFn is never
+ *  invoked. */
+function guarded<A, R>(fn: (args: A) => Promise<R>): (args: A) => Promise<R> {
+  return async (args: A) => {
+    if (!(await hasSession())) throw new NoSessionError();
+    return fn(args);
+  };
+}
+
 const SETTINGS_KEYS = [
   "mode",
   "liveConfirmed",
