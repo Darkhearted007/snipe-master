@@ -51,9 +51,16 @@ const watchInput = z.object({
   ),
 });
 
+export type LoadedState = {
+  settings: string | null; // JSON-stringified blob
+  trades: string; // JSON-stringified array
+  logs: string;
+  watchlist: string;
+};
+
 export const loadUserState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .handler(async ({ context }): Promise<LoadedState> => {
     const { supabase, userId } = context as {
       supabase: import("@supabase/supabase-js").SupabaseClient;
       userId: string;
@@ -75,15 +82,10 @@ export const loadUserState = createServerFn({ method: "GET" })
       supabase.from("watchlist_entries").select("*").eq("user_id", userId),
     ]);
     return {
-      settings: (s.data?.settings as Record<string, unknown> | null) ?? null,
-      trades: (t.data ?? []) as Array<Record<string, unknown>>,
-      logs: (l.data ?? []) as Array<Record<string, unknown>>,
-      watchlist: (w.data ?? []) as Array<Record<string, unknown>>,
-    } as {
-      settings: Record<string, unknown> | null;
-      trades: Array<Record<string, unknown>>;
-      logs: Array<Record<string, unknown>>;
-      watchlist: Array<Record<string, unknown>>;
+      settings: s.data?.settings ? JSON.stringify(s.data.settings) : null,
+      trades: JSON.stringify(t.data ?? []),
+      logs: JSON.stringify(l.data ?? []),
+      watchlist: JSON.stringify(w.data ?? []),
     };
   });
 
