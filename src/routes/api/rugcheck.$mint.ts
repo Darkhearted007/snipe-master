@@ -30,8 +30,8 @@ type RugcheckReport = {
 type SafetyVerdict = {
   mint: string;
   fetchedAt: number;
-  ok: boolean;
-  score: number | null; // 0-100 (rugcheck's own — higher = safer here after inversion)
+  ok: true;
+  score: number | null; // 0-100 (higher = safer, after inversion of rugcheck raw)
   rawScore: number | null; // rugcheck raw
   symbol: string | null;
   name: string | null;
