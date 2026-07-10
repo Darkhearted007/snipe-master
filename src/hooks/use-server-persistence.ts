@@ -156,13 +156,15 @@ export function useServerPersistence(enabled: boolean) {
       }));
       watchTimer.current = window.setTimeout(async () => {
         if (!(await hasSession())) return;
-        retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) =>
+        retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) => {
+          if (isUnauthorized(e)) return;
           logStructured(e, {
             category: "persistence",
             severity: "error",
             context: { op: "watchlist save", final: true },
-          }),
-        );
+          });
+        });
+
       }, 1500) as unknown as number;
     });
     return () => {
