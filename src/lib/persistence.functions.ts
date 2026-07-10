@@ -2,8 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+// settings payload arrives as a JSON string to avoid TanStack's
+// unknown-serialization guard.
 const settingsInput = z.object({
-  settings: z.record(z.string(), z.unknown()),
+  settingsJson: z.string().max(50_000),
 });
 
 const tradeInput = z.object({
