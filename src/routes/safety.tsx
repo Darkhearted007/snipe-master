@@ -129,13 +129,11 @@ function WatchlistSafetyCard({
   symbol,
   venue,
   mint,
-  fallbackSafety,
   onInspect,
 }: {
   symbol: string;
   venue: string;
   mint: string | null;
-  fallbackSafety: number;
   onInspect: (mint: string) => void;
 }) {
   const q = useTokenSafety(mint);
@@ -193,7 +191,9 @@ function WatchlistSafetyCard({
             />
           </>
         ) : (
-          <Row k="Bot safety" v={`${fallbackSafety}/100`} tone={tone(fallbackSafety)} />
+          <div className="rounded-md border border-dashed bg-muted/20 px-2 py-3 text-center text-[11px] text-muted-foreground">
+            Rugcheck has no report for this mint
+          </div>
         )}
         {mint && (
           <Button
