@@ -35,6 +35,11 @@ const SETTINGS_KEYS = [
 
 /** Retry policy for all persistence writes: 5 attempts, 500ms→~16s with
  *  full jitter. Skips retry for auth/validation errors (401/403/422). */
+function isUnauthorized(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /Unauthorized|401|No authorization header/i.test(msg);
+}
+
 function retryWrite<T>(op: () => Promise<T>, label: string) {
   return retryWithBackoff(op, {
     baseMs: 500,
@@ -55,6 +60,7 @@ function retryWrite<T>(op: () => Promise<T>, label: string) {
     },
   });
 }
+
 
 /** Bidirectional sync between the bot store and Lovable Cloud.
  *  Hydrates once on mount; debounces settings/watchlist writes; flushes new
@@ -91,6 +97,7 @@ export function useServerPersistence(enabled: boolean) {
         lastLogId.current = logs[0]?.id ?? null;
         lastTradeId.current = trades[0]?.id ?? null;
       } catch (e) {
+        if (isUnauthorized(e)) { hydrated.current = false; return; }
         logStructured(e, {
           category: "persistence",
           severity: "error",
@@ -98,6 +105,7 @@ export function useServerPersistence(enabled: boolean) {
           context: { op: "hydrate", final: true },
         });
       }
+
     })();
   }, [enabled, load]);
 
@@ -113,13 +121,15 @@ export function useServerPersistence(enabled: boolean) {
         retryWrite(
           () => saveSettings({ data: { settingsJson: JSON.stringify(snap) } }),
           "settings save",
-        ).catch((e) =>
+        ).catch((e) => {
+          if (isUnauthorized(e)) return;
           logStructured(e, {
             category: "persistence",
             severity: "error",
             context: { op: "settings save", final: true },
-          }),
-        );
+          });
+        });
+
       }, 800) as unknown as number;
     });
     return () => {
@@ -146,13 +156,15 @@ export function useServerPersistence(enabled: boolean) {
       }));
       watchTimer.current = window.setTimeout(async () => {
         if (!(await hasSession())) return;
-        retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) =>
+        retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) => {
+          if (isUnauthorized(e)) return;
           logStructured(e, {
             category: "persistence",
             severity: "error",
             context: { op: "watchlist save", final: true },
-          }),
-        );
+          });
+        });
+
       }, 1500) as unknown as number;
     });
     return () => {
@@ -225,12 +237,14 @@ export function useServerPersistence(enabled: boolean) {
             "trade insert",
           );
         } catch (e) {
+          if (isUnauthorized(e)) continue;
           logStructured(e, {
             category: "persistence",
             severity: "error",
             context: { op: "trade insert", final: true, tradeId: t.id },
           });
         }
+
       }
       lastTradeId.current = s.tradeHistory[0]?.id ?? lastTradeId.current;
     }, 3_000);
