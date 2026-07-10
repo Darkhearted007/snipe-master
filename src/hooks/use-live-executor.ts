@@ -2,28 +2,31 @@
 // and routes the platform fee to PLATFORM_FEE_WALLET when the trade is
 // profitable. Paper mode is untouched.
 //
-// Profit flow (live mode):
-//   - The user's SOL never leaves the connected wallet during simulated
-//     entries — only the platform fee is settled on-chain, and only when
-//     the closed position is profitable.
-//   - fee = pnlSol * platformFeePct/100 (computed in the store, clamped to
-//     positive PnL), so the net profit remains in the user's wallet.
-//   - We de-duplicate by tradeHistory id so a single realized profit is
-//     never fee-charged twice, even after re-renders or store rehydration.
+// Profit audit trail:
+//   1. The store records the closed trade with pnl / fee / net-to-user and
+//      settlementStatus = "pending" for profitable live exits (or "n/a").
+//   2. This hook attempts the on-chain fee transfer, then patches the trade
+//      row via setTradeSettlement("settled" | "failed", feeTxSig).
+//   3. Every state change appends an explicit `audit`/`error` log line so
+//      the pre- and post-settlement state is auditable end-to-end.
+//
+// The user's SOL never leaves the wallet during simulated entries — only
+// the platform fee is settled on-chain, and only on profitable exits.
 import { useEffect, useRef } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useServerFn } from "@tanstack/react-start";
 import { useBotStore } from "@/lib/bot-store";
 import { executeSwap, sendSolTransfer, SOL_MINT } from "@/lib/jupiter-client";
+import { updateTradeSettlement } from "@/lib/persistence.functions";
+import { supabase } from "@/integrations/supabase/client";
 
 const MIN_FEE_LAMPORTS = 1_000; // dust guard: below this, skip the transfer
 
 export function useLiveExecutor() {
   const { connection } = useConnection();
   const { wallet, publicKey } = useWallet();
-  // Track ids we've already settled (or attempted) so we never double-charge.
+  const patchSettlement = useServerFn(updateTradeSettlement);
   const processedRef = useRef<Set<string>>(new Set());
-  // Serialize transfers so multiple exits in the same tick don't race the
-  // wallet's signTransaction popup.
   const inFlightRef = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
@@ -31,11 +34,32 @@ export function useLiveExecutor() {
     if (!adapter || !publicKey) return;
     let cancelled = false;
 
-    // Seed processed with whatever is already in history at mount so we
-    // don't retroactively try to charge fees for pre-existing rows
-    // (persisted from a previous session).
+    // Seed processed with any already-terminal rows so we don't retroactively
+    // settle rehydrated history.
     const seed = useBotStore.getState().tradeHistory;
-    for (const t of seed) processedRef.current.add(t.id);
+    for (const t of seed) {
+      if (t.settlementStatus !== "pending") processedRef.current.add(t.id);
+    }
+
+    const persistSettlement = async (
+      tradeId: string,
+      status: "settled" | "failed",
+      feeTxSig?: string,
+    ) => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!data.session?.access_token) return; // signed out; local audit only
+        await patchSettlement({
+          data: {
+            client_id: tradeId,
+            settlement_status: status,
+            fee_tx_sig: feeTxSig ?? null,
+          },
+        });
+      } catch {
+        /* persistence best-effort; local audit already recorded */
+      }
+    };
 
     const unsub = useBotStore.subscribe((state) => {
       if (cancelled) return;
@@ -45,28 +69,33 @@ export function useLiveExecutor() {
         (t) =>
           !processedRef.current.has(t.id) &&
           t.mode === "live" &&
+          t.settlementStatus === "pending" &&
           t.pnlSol > 0 &&
           t.feePaidSol > 0 &&
           !!t.feeWallet,
       );
       if (!fresh.length) return;
-
-      // Mark as processed BEFORE awaiting so re-entrant subscribe calls
-      // don't queue the same trade twice.
       for (const t of fresh) processedRef.current.add(t.id);
 
       inFlightRef.current = inFlightRef.current.then(async () => {
         for (const t of fresh) {
           const lamports = Math.floor(t.feePaidSol * 1e9);
-          if (lamports < MIN_FEE_LAMPORTS) continue;
-          // Never send fee to the user's own wallet (bootstrap admin case).
+          const setSettlement = useBotStore.getState().setTradeSettlement;
+
+          if (lamports < MIN_FEE_LAMPORTS) {
+            setSettlement(t.id, {
+              status: "settled",
+              error: "dust; skipped on-chain transfer",
+            });
+            await persistSettlement(t.id, "settled");
+            continue;
+          }
           if (t.feeWallet && publicKey.toBase58() === t.feeWallet) {
-            useBotStore
-              .getState()
-              .logAudit(
-                `Fee retained: user wallet is the platform fee wallet`,
-                "audit",
-              );
+            setSettlement(t.id, {
+              status: "settled",
+              error: "user wallet == fee wallet; no-op",
+            });
+            await persistSettlement(t.id, "settled");
             continue;
           }
           try {
@@ -76,21 +105,14 @@ export function useLiveExecutor() {
               toAddress: t.feeWallet as string,
               lamports,
             });
-            useBotStore
-              .getState()
-              .logAudit(
-                `Platform fee ${(lamports / 1e9).toFixed(5)} SOL sent · ${sig.slice(0, 8)}…`,
-                "audit",
-              );
+            setSettlement(t.id, { status: "settled", feeTxSig: sig });
+            await persistSettlement(t.id, "settled", sig);
           } catch (e) {
-            // On failure, allow a manual retry later by un-marking this id.
+            const msg = (e as Error).message ?? "unknown error";
+            // Un-mark so a future subscribe tick can retry.
             processedRef.current.delete(t.id);
-            useBotStore
-              .getState()
-              .logAudit(
-                `Fee transfer failed (will retry on next exit): ${(e as Error).message}`,
-                "error",
-              );
+            setSettlement(t.id, { status: "failed", error: msg });
+            await persistSettlement(t.id, "failed");
           }
         }
       });
@@ -100,7 +122,7 @@ export function useLiveExecutor() {
       cancelled = true;
       unsub();
     };
-  }, [connection, wallet, publicKey]);
+  }, [connection, wallet, publicKey, patchSettlement]);
 }
 
 // Re-export helpers so components can call ad-hoc quotes.

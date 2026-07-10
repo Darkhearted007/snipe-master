@@ -130,6 +130,12 @@ interface BotState {
 
   logAudit: (summary: string, type?: DecisionLogEntry["type"]) => void;
 
+  /** Update the on-chain settlement state for a recorded trade. */
+  setTradeSettlement: (
+    tradeId: string,
+    patch: { status: TradeHistoryEntry["settlementStatus"]; feeTxSig?: string; error?: string },
+  ) => void;
+
   tick: () => void;
   healthCheck: () => void;
 
@@ -357,6 +363,40 @@ export const useBotStore = create<BotState>()(
           }).slice(0, MAX_LOG),
         })),
 
+      setTradeSettlement: (tradeId, patch) =>
+        set((s) => {
+          const idx = s.tradeHistory.findIndex((t) => t.id === tradeId);
+          if (idx < 0) return {};
+          const prev = s.tradeHistory[idx];
+          const updated: TradeHistoryEntry = {
+            ...prev,
+            settlementStatus: patch.status,
+            feeTxSig: patch.feeTxSig ?? prev.feeTxSig,
+            settlementError: patch.error ?? prev.settlementError,
+            settledAt:
+              patch.status === "settled" ? Date.now() : prev.settledAt,
+          };
+          const nextHistory = s.tradeHistory.slice();
+          nextHistory[idx] = updated;
+          const auditLine =
+            patch.status === "settled"
+              ? `Audit#${tradeId.slice(0, 6)} settled · fee ${prev.feePaidSol.toFixed(5)} SOL → ${shortAddr(prev.feeWallet ?? "?")} · sig ${(patch.feeTxSig ?? "").slice(0, 8)}…`
+              : patch.status === "failed"
+                ? `Audit#${tradeId.slice(0, 6)} settlement FAILED · ${patch.error ?? "unknown"} · net retained ${(prev.pnlSol).toFixed(5)} SOL (fee unpaid)`
+                : `Audit#${tradeId.slice(0, 6)} settlement ${patch.status}`;
+          return {
+            tradeHistory: nextHistory,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: patch.status === "failed" ? "error" : "audit",
+              summary: auditLine,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
+
+
 
       setUserDeposit: (v) => {
         if (!Number.isFinite(v) || v < MIN_USER_DEPOSIT_SOL) {
@@ -432,6 +472,7 @@ export const useBotStore = create<BotState>()(
             reason: "kill",
             feePaidSol: 0,
             netToUserSol: (p.current - p.entry) * (p.sizeSol / p.entry),
+            settlementStatus: "n/a",
           }));
           return {
             status: "idle",
@@ -478,6 +519,7 @@ export const useBotStore = create<BotState>()(
             feePaidSol: fee,
             netToUserSol: net,
             feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
+            settlementStatus: fee > 0 ? "pending" : "n/a",
           };
           return {
             positions: s.positions.filter((x) => x.id !== pid),
@@ -493,6 +535,16 @@ export const useBotStore = create<BotState>()(
                 ts: Date.now(),
                 type: "execution",
                 summary: `Manual close ${p.token} · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+              },
+              {
+                id: id(),
+                ts: Date.now(),
+                type: "audit" as const,
+                summary:
+                  `Audit#${entry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · ` +
+                  `pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · ` +
+                  `fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · ` +
+                  `net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
               },
               ...(fee > 0
                 ? [
@@ -762,7 +814,7 @@ export const useBotStore = create<BotState>()(
               bankroll += p.sizeSol + net;
               feesAccrued += fee;
               const reason: TradeHistoryEntry["reason"] = rr >= p.tp ? "tp" : "sl";
-              newHistory.push({
+              const tradeEntry: TradeHistoryEntry = {
                 id: id(),
                 ts: Date.now(),
                 mode: s.mode,
@@ -776,12 +828,25 @@ export const useBotStore = create<BotState>()(
                 feePaidSol: fee,
                 netToUserSol: net,
                 feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
-              });
+                settlementStatus: fee > 0 ? "pending" : "n/a",
+              };
+              newHistory.push(tradeEntry);
               newLogs.push({
                 id: id(),
                 ts: Date.now(),
                 type: "execution",
                 summary: `Exit ${p.token} @ ${reason.toUpperCase()} · ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+              });
+              // Profit audit trail — pre-settlement snapshot (paper or live).
+              newLogs.push({
+                id: id(),
+                ts: Date.now(),
+                type: "audit",
+                summary:
+                  `Audit#${tradeEntry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · ` +
+                  `pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · ` +
+                  `fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · ` +
+                  `net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
               });
               if (fee > 0) {
                 newLogs.push({
@@ -1102,7 +1167,7 @@ export const useBotStore = create<BotState>()(
           }
           if (Array.isArray(trades) && trades.length) {
             patch.tradeHistory = trades.slice(0, MAX_HISTORY).map((t) => ({
-              id: String(t.id ?? id()),
+              id: String(t.client_id ?? t.id ?? id()),
               ts: new Date(String(t.ts ?? Date.now())).getTime(),
               mode: (t.mode === "live" ? "live" : "paper") as BotMode,
               token: String(t.token ?? "?"),
@@ -1115,6 +1180,9 @@ export const useBotStore = create<BotState>()(
               feePaidSol: Number(t.fee_paid_sol ?? 0),
               netToUserSol: Number(t.net_to_user_sol ?? 0),
               feeWallet: (t.fee_wallet as string | undefined) ?? undefined,
+              settlementStatus:
+                ((t.settlement_status as TradeHistoryEntry["settlementStatus"]) ?? "n/a"),
+              feeTxSig: (t.fee_tx_sig as string | undefined) ?? undefined,
             }));
           }
           if (Array.isArray(logs) && logs.length) {

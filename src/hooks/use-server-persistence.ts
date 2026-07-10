@@ -205,6 +205,7 @@ export function useServerPersistence(enabled: boolean) {
             () =>
               flushTrade({
                 data: {
+                  client_id: t.id,
                   ts: t.ts,
                   mode: t.mode,
                   token: t.token,
@@ -217,6 +218,8 @@ export function useServerPersistence(enabled: boolean) {
                   fee_paid_sol: t.feePaidSol,
                   net_to_user_sol: t.netToUserSol,
                   fee_wallet: t.feeWallet ?? null,
+                  fee_tx_sig: t.feeTxSig ?? null,
+                  settlement_status: t.settlementStatus,
                 },
               }),
             "trade insert",
