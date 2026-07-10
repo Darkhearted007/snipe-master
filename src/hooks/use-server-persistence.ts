@@ -165,6 +165,7 @@ export function useServerPersistence(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const iv = window.setInterval(async () => {
+      if (!(await hasSession())) return;
       const s = useBotStore.getState();
       // logs — take everything newer than lastLogId
       const newLogs: typeof s.log = [];
