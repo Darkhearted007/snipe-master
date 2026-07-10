@@ -1,6 +1,14 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Search, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import {
+  Info,
+  Loader2,
+  Plus,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
