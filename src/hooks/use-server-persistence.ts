@@ -113,11 +113,11 @@ export function useServerPersistence(enabledProp: boolean) {
   const sessionReady = useSessionReady();
   const enabled = enabledProp && sessionReady;
 
-  const load = useServerFn(loadUserState);
-  const saveSettings = useServerFn(saveUserSettings);
-  const flushLogs = useServerFn(appendDecisionLogs);
-  const flushTrade = useServerFn(appendTradeHistory);
-  const flushWatch = useServerFn(saveWatchlist);
+  const load = guarded(useServerFn(loadUserState));
+  const saveSettings = guarded(useServerFn(saveUserSettings));
+  const flushLogs = guarded(useServerFn(appendDecisionLogs));
+  const flushTrade = guarded(useServerFn(appendTradeHistory));
+  const flushWatch = guarded(useServerFn(saveWatchlist));
   const hydrated = useRef(false);
   const lastLogId = useRef<string | null>(null);
   const lastTradeId = useRef<string | null>(null);
