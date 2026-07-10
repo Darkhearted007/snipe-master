@@ -16,14 +16,15 @@ export default defineConfig({
   },
   vite: {
     plugins: [
-      // Inject Buffer/process/global polyfills into the client bundle so
-      // @solana/web3.js and wallet-adapter chunks see them before evaluation.
-      // Applies only to the client build, not SSR (workerd already has them).
-      nodePolyfills({
-        include: ["buffer", "process"],
-        globals: { Buffer: true, global: true, process: true },
-        protocolImports: false,
-      }),
+      {
+        ...nodePolyfills({
+          include: ["buffer", "process"],
+          globals: { Buffer: true, global: true, process: true },
+          protocolImports: false,
+        }),
+        applyToEnvironment: (env) => env.name === "client",
+      },
+
     ],
     resolve: {
       alias: [
