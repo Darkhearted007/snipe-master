@@ -106,11 +106,10 @@ function SiwsPanel() {
       const sigBytes = await signMessage(msg);
       const bs58 = (await import("bs58")).default;
       const signature = bs58.encode(sigBytes);
-      const { email, tokenHash } = await verify({
+      const { tokenHash } = await verify({
         data: { walletAddress: address, signature, nonce },
       });
       const { error: otpErr } = await supabase.auth.verifyOtp({
-        email,
         token_hash: tokenHash,
         type: "magiclink",
       });
