@@ -2,21 +2,46 @@ import { useContext, useEffect } from "react";
 import { WalletContext } from "@solana/wallet-adapter-react";
 import { useBotStore } from "@/lib/bot-store";
 
-/** Mirror the real wallet-adapter state into the Zustand store.
- *  Uses useContext directly so it no-ops (instead of throwing) when
- *  the client-only SolanaProviders hasn't mounted yet. */
-export function useWalletSync() {
+/** Safely read wallet-adapter state without throwing when the client-only
+ *  SolanaProviders hasn't mounted yet (its default context getters throw). */
+export function safeReadWallet() {
   const ctx = useContext(WalletContext);
+  try {
+    const publicKey = ctx?.publicKey ?? null;
+    return {
+      ready: true,
+      publicKey,
+      connected: ctx?.connected ?? false,
+      connecting: ctx?.connecting ?? false,
+      wallet: ctx?.wallet ?? null,
+      disconnect: ctx?.disconnect ?? (async () => {}),
+      address: publicKey ? publicKey.toBase58() : null,
+      walletName: ctx?.wallet?.adapter.name ?? null,
+    };
+  } catch {
+    return {
+      ready: false,
+      publicKey: null,
+      connected: false,
+      connecting: false,
+      wallet: null,
+      disconnect: async () => {},
+      address: null as string | null,
+      walletName: null as string | null,
+    };
+  }
+}
+
+export function useWalletSync() {
+  const w = safeReadWallet();
   const setWalletFromAdapter = useBotStore((s) => s.setWalletFromAdapter);
-
-  const publicKey = ctx?.publicKey ?? null;
-  const connected = ctx?.connected ?? false;
-  const connecting = ctx?.connecting ?? false;
-  const walletName = ctx?.wallet?.adapter.name ?? null;
-  const address = publicKey ? publicKey.toBase58() : null;
-
   useEffect(() => {
-    if (!ctx) return;
-    setWalletFromAdapter({ connected, connecting, address, walletName });
-  }, [ctx, connected, connecting, address, walletName, setWalletFromAdapter]);
+    if (!w.ready) return;
+    setWalletFromAdapter({
+      connected: w.connected,
+      connecting: w.connecting,
+      address: w.address,
+      walletName: w.walletName,
+    });
+  }, [w.ready, w.connected, w.connecting, w.address, w.walletName, setWalletFromAdapter]);
 }
