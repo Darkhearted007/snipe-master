@@ -14,6 +14,7 @@ import { Route as TradesRouteImport } from './routes/trades'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SafetyRouteImport } from './routes/safety'
 import { Route as LogsRouteImport } from './routes/logs'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiRpcRouteImport } from './routes/api/rpc'
 import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
@@ -43,6 +44,11 @@ const LogsRoute = LogsRouteImport.update({
   path: '/logs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -61,6 +67,7 @@ const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/logs': typeof LogsRoute
   '/safety': typeof SafetyRoute
   '/settings': typeof SettingsRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/logs': typeof LogsRoute
   '/safety': typeof SafetyRoute
   '/settings': typeof SettingsRoute
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/logs': typeof LogsRoute
   '/safety': typeof SafetyRoute
   '/settings': typeof SettingsRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/logs'
     | '/safety'
     | '/settings'
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/auth'
     | '/logs'
     | '/safety'
     | '/settings'
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/auth'
     | '/logs'
     | '/safety'
     | '/settings'
@@ -125,6 +137,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthRoute: typeof AuthRoute
   LogsRoute: typeof LogsRoute
   SafetyRoute: typeof SafetyRoute
   SettingsRoute: typeof SettingsRoute
@@ -171,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LogsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -197,6 +217,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthRoute: AuthRoute,
   LogsRoute: LogsRoute,
   SafetyRoute: SafetyRoute,
   SettingsRoute: SettingsRoute,
