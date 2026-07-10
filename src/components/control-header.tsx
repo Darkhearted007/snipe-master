@@ -81,12 +81,28 @@ export function ControlHeader() {
         : null;
 
   const handleStart = () => {
+    if (!canTrade) {
+      toast.error("Read-only access", {
+        description: "You need the trader or admin role to start the bot.",
+      });
+      return;
+    }
     if (startBlockedReason) {
       toast.error("Cannot start", { description: startBlockedReason });
       return;
     }
     start();
     toast.success(`Bot running · ${mode.toUpperCase()}`);
+  };
+
+  const handleStop = () => {
+    if (!canTrade) {
+      toast.error("Read-only access", {
+        description: "Only trader/admin can stop the bot.",
+      });
+      return;
+    }
+    stop();
   };
 
 
@@ -118,6 +134,7 @@ export function ControlHeader() {
 
 
       <div className="ml-auto flex items-center gap-2">
+        <RoleBadge />
         {startBlockedReason && !isRunning && (
           <Badge variant="secondary" className="hidden gap-1 md:inline-flex">
             <AlertTriangle className="h-3 w-3 text-warning" />
@@ -130,13 +147,22 @@ export function ControlHeader() {
           </Badge>
         )}
         {isRunning ? (
-          <Button onClick={stop} variant="destructive" size="sm" className="gap-1.5">
+          <Button
+            onClick={handleStop}
+            variant="destructive"
+            size="sm"
+            className="gap-1.5"
+            disabled={!canTrade}
+            title={!canTrade ? "Requires trader role" : undefined}
+          >
             <Square className="h-3.5 w-3.5 fill-current" /> Stop
           </Button>
         ) : (
           <Button
             onClick={handleStart}
             size="sm"
+            disabled={!canTrade}
+            title={!canTrade ? "Requires trader role" : undefined}
             className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
           >
             <Play className="h-3.5 w-3.5 fill-current" /> Start
@@ -145,8 +171,15 @@ export function ControlHeader() {
         <Button
           variant="outline"
           size="icon"
-          onClick={() => setKillDialog(true)}
-          title="Kill switch"
+          onClick={() => {
+            if (!canKill) {
+              toast.error("Admin only", { description: "Kill switch is admin-only." });
+              return;
+            }
+            setKillDialog(true);
+          }}
+          disabled={!canKill}
+          title={canKill ? "Kill switch" : "Admin only"}
           className="border-danger/50 text-danger hover:bg-danger hover:text-danger-foreground"
         >
           <Power className="h-4 w-4" />
