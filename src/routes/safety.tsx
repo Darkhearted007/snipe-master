@@ -457,11 +457,11 @@ function tone(n: number) {
   return "text-danger";
 }
 
-function Row({ k, v, tone }: { k: string; v: string; tone?: string }) {
+function Row({ k, v, tone: toneClass }: { k: string; v: string; tone?: string }) {
   return (
     <div className="flex justify-between rounded-md border bg-muted/20 px-2 py-1.5">
       <span className="text-muted-foreground">{k}</span>
-      <span className={cn("font-mono", tone)}>{v}</span>
+      <span className={cn("font-mono", toneClass)}>{v}</span>
     </div>
   );
 }
