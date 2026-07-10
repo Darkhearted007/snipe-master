@@ -58,10 +58,10 @@ function isNoSession(e: unknown): boolean {
 /** Hard-guard wrapper: every persistence serverFn is routed through this.
  *  If there is no Supabase session at call time, the serverFn is never
  *  invoked. */
-function guarded<A, R>(fn: (args: A) => Promise<R>): (args: A) => Promise<R> {
-  return async (args: A) => {
+function guarded<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+  return async (...args: A) => {
     if (!(await hasSession())) throw new NoSessionError();
-    return fn(args);
+    return fn(...args);
   };
 }
 
