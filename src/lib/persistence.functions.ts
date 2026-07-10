@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { getOptionalPersistenceAuth } from "@/lib/persistence-auth.server";
+import type { Json } from "@/integrations/supabase/types";
 
 // settings payload arrives as a JSON string to avoid TanStack's
 // unknown-serialization guard.
@@ -69,12 +70,10 @@ export type LoadedState = {
 };
 
 export const loadUserState = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<LoadedState> => {
-    const { supabase, userId } = context as {
-      supabase: import("@supabase/supabase-js").SupabaseClient;
-      userId: string;
-    };
+  .handler(async (): Promise<LoadedState> => {
+    const auth = await getOptionalPersistenceAuth();
+    if (!auth) return { settings: null, trades: "[]", logs: "[]", watchlist: "[]" };
+    const { supabase, userId } = auth;
     const [s, t, l, w] = await Promise.all([
       supabase.from("user_settings").select("settings").eq("user_id", userId).maybeSingle(),
       supabase
@@ -100,14 +99,12 @@ export const loadUserState = createServerFn({ method: "GET" })
   });
 
 export const saveUserSettings = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((raw) => settingsInput.parse(raw))
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context as {
-      supabase: import("@supabase/supabase-js").SupabaseClient;
-      userId: string;
-    };
-    let parsed: unknown;
+  .handler(async ({ data }) => {
+    const auth = await getOptionalPersistenceAuth();
+    if (!auth) return { ok: false, skipped: true };
+    const { supabase, userId } = auth;
+    let parsed: Json;
     try {
       parsed = JSON.parse(data.settingsJson);
     } catch {
@@ -121,13 +118,11 @@ export const saveUserSettings = createServerFn({ method: "POST" })
   });
 
 export const appendTradeHistory = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((raw) => tradeInput.parse(raw))
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context as {
-      supabase: import("@supabase/supabase-js").SupabaseClient;
-      userId: string;
-    };
+  .handler(async ({ data }) => {
+    const auth = await getOptionalPersistenceAuth();
+    if (!auth) return { ok: false, skipped: true };
+    const { supabase, userId } = auth;
     const { error } = await supabase.from("trade_history").insert({
       user_id: userId,
       client_id: data.client_id,
@@ -154,13 +149,11 @@ export const appendTradeHistory = createServerFn({ method: "POST" })
 /** Patch settlement status + fee tx signature on an existing trade row.
  *  Matches by (user_id, client_id) so we don't need to round-trip a db id. */
 export const updateTradeSettlement = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((raw) => settlementInput.parse(raw))
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context as {
-      supabase: import("@supabase/supabase-js").SupabaseClient;
-      userId: string;
-    };
+  .handler(async ({ data }) => {
+    const auth = await getOptionalPersistenceAuth();
+    if (!auth) return { ok: false, skipped: true };
+    const { supabase, userId } = auth;
     const { error } = await supabase
       .from("trade_history")
       .update({
@@ -174,13 +167,11 @@ export const updateTradeSettlement = createServerFn({ method: "POST" })
   });
 
 export const appendDecisionLogs = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((raw) => logsInput.parse(raw))
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context as {
-      supabase: import("@supabase/supabase-js").SupabaseClient;
-      userId: string;
-    };
+  .handler(async ({ data }) => {
+    const auth = await getOptionalPersistenceAuth();
+    if (!auth) return { ok: false, inserted: 0, skipped: true };
+    const { supabase, userId } = auth;
     if (!data.entries.length) return { ok: true, inserted: 0 };
     const rows = data.entries.map((e) => ({
       user_id: userId,
@@ -199,13 +190,11 @@ export const appendDecisionLogs = createServerFn({ method: "POST" })
   });
 
 export const saveWatchlist = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((raw) => watchInput.parse(raw))
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context as {
-      supabase: import("@supabase/supabase-js").SupabaseClient;
-      userId: string;
-    };
+  .handler(async ({ data }) => {
+    const auth = await getOptionalPersistenceAuth();
+    if (!auth) return { ok: false, skipped: true };
+    const { supabase, userId } = auth;
     // Replace-all strategy (small tables per user, ≤40 rows)
     await supabase.from("watchlist_entries").delete().eq("user_id", userId);
     if (data.entries.length) {
