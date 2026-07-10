@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useBotStore } from "@/lib/bot-store";
+import { logStructured } from "@/lib/structured-logger";
 
 // DexScreener WSS streams. Browsers connect directly — no CORS on WSS,
 // no auth needed. Each feed is a separate socket; we reconnect with
@@ -45,7 +46,7 @@ export function useDexScreenerStream(enabled: boolean) {
       try {
         ws = new WebSocket(url);
       } catch (e) {
-        logAudit(`DexScreener WSS open failed: ${(e as Error).message}`, "error");
+        logStructured(e, { category: "stream", context: { url, phase: "open" } });
         return;
       }
       sockets.current.push(ws);
@@ -80,10 +81,17 @@ export function useDexScreenerStream(enabled: boolean) {
         const attempt = (retries.current[url] ?? 0) + 1;
         retries.current[url] = attempt;
         const backoff = Math.min(30_000, 1_000 * 2 ** Math.min(attempt, 5));
+        logStructured(new Error(`stream closed (attempt ${attempt})`), {
+          category: "stream",
+          severity: attempt >= 3 ? "warning" : "info",
+          silent: attempt < 3,
+          userMessage: `Live market stream disconnected — retrying in ${Math.round(backoff / 1000)}s`,
+          context: { url, attempt, backoffMs: backoff },
+        });
         setTimeout(() => open(url), backoff);
       };
       ws.onerror = () => {
-        // swallow — onclose handles reconnect
+        // swallow — onclose handles reconnect + structured log
       };
     };
 
