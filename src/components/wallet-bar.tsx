@@ -103,15 +103,18 @@ export function WalletBar() {
           <Button variant="secondary" size="sm" className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" />
             <span className="font-mono text-xs">{shortAddr(address)}</span>
-            {name && <span className="text-[10px] text-muted-foreground">{name}</span>}
+            <span className="font-mono text-[10px] text-muted-foreground">· {formatSol(balance)}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
           <DropdownMenuLabel className="text-xs">
             {name ? `${name} · connected` : "Connected wallet"}
           </DropdownMenuLabel>
-          <div className="px-2 pb-2 font-mono text-[10px] break-all text-muted-foreground">
+          <div className="px-2 pb-1 font-mono text-[10px] break-all text-muted-foreground">
             {address}
+          </div>
+          <div className="px-2 pb-2 font-mono text-xs text-foreground">
+            Balance: {formatSol(balance)}
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={copy}>Copy address</DropdownMenuItem>
