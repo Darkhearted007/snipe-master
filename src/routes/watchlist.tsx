@@ -228,10 +228,18 @@ function WatchlistPage() {
               </SelectContent>
             </Select>
             <Input
+              placeholder="Mint address (optional, Solana base58)"
+              value={mintAddress}
+              onChange={(e) => setMintAddress(e.target.value)}
+              className="w-72 font-mono"
+              maxLength={44}
+            />
+            <Input
               placeholder="Note (optional)"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="flex-1 min-w-40"
+              maxLength={200}
             />
             <Button onClick={handleAdd}>Add</Button>
           </div>
