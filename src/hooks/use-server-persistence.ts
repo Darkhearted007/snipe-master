@@ -10,6 +10,7 @@ import {
   type LoadedState,
 } from "@/lib/persistence.functions";
 import { logStructured } from "@/lib/structured-logger";
+import { retryWithBackoff, isPermanentError } from "@/lib/retry-backoff";
 
 const SETTINGS_KEYS = [
   "mode",
@@ -22,10 +23,33 @@ const SETTINGS_KEYS = [
   "autoCurate",
 ] as const;
 
+/** Retry policy for all persistence writes: 5 attempts, 500ms→~16s with
+ *  full jitter. Skips retry for auth/validation errors (401/403/422). */
+function retryWrite<T>(op: () => Promise<T>, label: string) {
+  return retryWithBackoff(op, {
+    baseMs: 500,
+    maxMs: 16_000,
+    maxAttempts: 5,
+    shouldRetry: (e) => !isPermanentError(e),
+    onRetry: (attempt, delayMs, error) => {
+      logStructured(error, {
+        category: "persistence",
+        severity: attempt >= 3 ? "warning" : "info",
+        silent: attempt < 3,
+        userMessage:
+          attempt >= 3
+            ? `Cloud sync failing (${label}) — retrying`
+            : undefined,
+        context: { op: label, attempt, delayMs },
+      });
+    },
+  });
+}
+
 /** Bidirectional sync between the bot store and Lovable Cloud.
  *  Hydrates once on mount; debounces settings/watchlist writes; flushes new
- *  log entries and trade rows on a timer. All writes are best-effort — a
- *  server failure logs an error but never blocks the trading loop. */
+ *  log entries and trade rows on a timer. All writes retry with exponential
+ *  backoff and never block the trading loop. */
 export function useServerPersistence(enabled: boolean) {
   const load = useServerFn(loadUserState);
   const saveSettings = useServerFn(saveUserSettings);
@@ -38,13 +62,13 @@ export function useServerPersistence(enabled: boolean) {
   const settingsTimer = useRef<number | null>(null);
   const watchTimer = useRef<number | null>(null);
 
-  // 1) Hydrate once
+  // 1) Hydrate once (retried)
   useEffect(() => {
     if (!enabled || hydrated.current) return;
     hydrated.current = true;
     (async () => {
       try {
-        const payload = (await load()) as LoadedState;
+        const payload = (await retryWrite(() => load(), "hydrate")) as LoadedState;
         useBotStore.getState().hydrateFromServer({
           settings: payload.settings ? JSON.parse(payload.settings) : null,
           trades: JSON.parse(payload.trades),
@@ -56,12 +80,17 @@ export function useServerPersistence(enabled: boolean) {
         lastLogId.current = logs[0]?.id ?? null;
         lastTradeId.current = trades[0]?.id ?? null;
       } catch (e) {
-        logStructured(e, { category: "persistence", context: { op: "hydrate" } });
+        logStructured(e, {
+          category: "persistence",
+          severity: "error",
+          userMessage: "Could not load your saved settings — using defaults",
+          context: { op: "hydrate", final: true },
+        });
       }
     })();
   }, [enabled, load]);
 
-  // 2) Settings write (debounced)
+  // 2) Settings write (debounced + retried)
   useEffect(() => {
     if (!enabled) return;
     const unsub = useBotStore.subscribe((s) => {
@@ -69,8 +98,15 @@ export function useServerPersistence(enabled: boolean) {
       const snap: Record<string, unknown> = {};
       for (const k of SETTINGS_KEYS) snap[k] = (s as unknown as Record<string, unknown>)[k];
       settingsTimer.current = window.setTimeout(() => {
-        saveSettings({ data: { settingsJson: JSON.stringify(snap) } }).catch((e) =>
-          logStructured(e, { category: "persistence", context: { op: "settings save" } }),
+        retryWrite(
+          () => saveSettings({ data: { settingsJson: JSON.stringify(snap) } }),
+          "settings save",
+        ).catch((e) =>
+          logStructured(e, {
+            category: "persistence",
+            severity: "error",
+            context: { op: "settings save", final: true },
+          }),
         );
       }, 800) as unknown as number;
     });
@@ -80,7 +116,7 @@ export function useServerPersistence(enabled: boolean) {
     };
   }, [enabled, saveSettings]);
 
-  // 3) Watchlist write (debounced)
+  // 3) Watchlist write (debounced + retried)
   useEffect(() => {
     if (!enabled) return;
     const unsub = useBotStore.subscribe((s) => {
@@ -97,8 +133,12 @@ export function useServerPersistence(enabled: boolean) {
         added_at: w.addedAt,
       }));
       watchTimer.current = window.setTimeout(() => {
-        flushWatch({ data: { entries } }).catch((e) =>
-          logStructured(e, { category: "persistence", context: { op: "watchlist save" } }),
+        retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) =>
+          logStructured(e, {
+            category: "persistence",
+            severity: "error",
+            context: { op: "watchlist save", final: true },
+          }),
         );
       }, 1500) as unknown as number;
     });
@@ -108,7 +148,7 @@ export function useServerPersistence(enabled: boolean) {
     };
   }, [enabled, flushWatch]);
 
-  // 4) Log + trade flush (batched every 3s)
+  // 4) Log + trade flush (batched every 3s, retried per batch)
   useEffect(() => {
     if (!enabled) return;
     const iv = window.setInterval(async () => {
@@ -121,18 +161,22 @@ export function useServerPersistence(enabled: boolean) {
       }
       if (newLogs.length) {
         try {
-          await flushLogs({
-            data: {
-              entries: newLogs.slice(0, 100).map((l) => ({
-                ts: l.ts,
-                type: l.type,
-                summary: l.summary,
-              })),
-            },
-          });
+          await retryWrite(
+            () =>
+              flushLogs({
+                data: {
+                  entries: newLogs.slice(0, 100).map((l) => ({
+                    ts: l.ts,
+                    type: l.type,
+                    summary: l.summary,
+                  })),
+                },
+              }),
+            "logs flush",
+          );
           lastLogId.current = s.log[0]?.id ?? lastLogId.current;
         } catch {
-          /* ignore — next tick will retry */
+          /* next tick will retry — keep lastLogId untouched */
         }
       }
       // trades — insert one-at-a-time (typically low volume)
@@ -143,24 +187,32 @@ export function useServerPersistence(enabled: boolean) {
       }
       for (const t of newTrades.reverse()) {
         try {
-          await flushTrade({
-            data: {
-              ts: t.ts,
-              mode: t.mode,
-              token: t.token,
-              venue: t.venue,
-              size_sol: t.sizeSol,
-              entry: t.entry,
-              exit: t.exit,
-              pnl_sol: t.pnlSol,
-              reason: t.reason,
-              fee_paid_sol: t.feePaidSol,
-              net_to_user_sol: t.netToUserSol,
-              fee_wallet: t.feeWallet ?? null,
-            },
+          await retryWrite(
+            () =>
+              flushTrade({
+                data: {
+                  ts: t.ts,
+                  mode: t.mode,
+                  token: t.token,
+                  venue: t.venue,
+                  size_sol: t.sizeSol,
+                  entry: t.entry,
+                  exit: t.exit,
+                  pnl_sol: t.pnlSol,
+                  reason: t.reason,
+                  fee_paid_sol: t.feePaidSol,
+                  net_to_user_sol: t.netToUserSol,
+                  fee_wallet: t.feeWallet ?? null,
+                },
+              }),
+            "trade insert",
+          );
+        } catch (e) {
+          logStructured(e, {
+            category: "persistence",
+            severity: "error",
+            context: { op: "trade insert", final: true, tradeId: t.id },
           });
-        } catch {
-          /* ignore individual failures */
         }
       }
       lastTradeId.current = s.tradeHistory[0]?.id ?? lastTradeId.current;
@@ -168,3 +220,4 @@ export function useServerPersistence(enabled: boolean) {
     return () => window.clearInterval(iv);
   }, [enabled, flushLogs, flushTrade]);
 }
+
