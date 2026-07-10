@@ -1,6 +1,5 @@
 import { useContext, useState } from "react";
 import { AlertTriangle, Play, Power, Square, Wallet } from "lucide-react";
-import { WalletContext } from "@solana/wallet-adapter-react";
 import { WalletModalContext } from "@solana/wallet-adapter-react-ui";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
