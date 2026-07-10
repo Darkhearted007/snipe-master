@@ -112,7 +112,6 @@ function SafetyPage() {
                 symbol={w.symbol}
                 venue={w.venue}
                 mint={w.mintAddress ?? null}
-                fallbackSafety={w.safety}
                 onInspect={(m) => {
                   setInput(m);
                   setMint(m);
