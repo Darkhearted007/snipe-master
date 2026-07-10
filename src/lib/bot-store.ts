@@ -1133,7 +1133,7 @@ export const useBotStore = create<BotState>()(
           }
           if (Array.isArray(trades) && trades.length) {
             patch.tradeHistory = trades.slice(0, MAX_HISTORY).map((t) => ({
-              id: String(t.id ?? id()),
+              id: String(t.client_id ?? t.id ?? id()),
               ts: new Date(String(t.ts ?? Date.now())).getTime(),
               mode: (t.mode === "live" ? "live" : "paper") as BotMode,
               token: String(t.token ?? "?"),
@@ -1146,6 +1146,9 @@ export const useBotStore = create<BotState>()(
               feePaidSol: Number(t.fee_paid_sol ?? 0),
               netToUserSol: Number(t.net_to_user_sol ?? 0),
               feeWallet: (t.fee_wallet as string | undefined) ?? undefined,
+              settlementStatus:
+                ((t.settlement_status as TradeHistoryEntry["settlementStatus"]) ?? "n/a"),
+              feeTxSig: (t.fee_tx_sig as string | undefined) ?? undefined,
             }));
           }
           if (Array.isArray(logs) && logs.length) {
