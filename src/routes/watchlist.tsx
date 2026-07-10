@@ -71,7 +71,19 @@ function WatchlistPage() {
   const enabledCount = watchlist.filter((w) => w.enabled).length;
 
   const handleAdd = () => {
-    const res = addWatch({ symbol, venue, note: note || undefined });
+    const mint = mintAddress.trim();
+    if (mint && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
+      toast.error("Invalid mint address", {
+        description: "Must be a base58 Solana mint (32–44 chars).",
+      });
+      return;
+    }
+    const res = addWatch({
+      symbol,
+      venue,
+      note: note || undefined,
+      mintAddress: mint || null,
+    });
     if (!res.ok) {
       toast.error("Rejected by safety filter", { description: res.error });
       return;
@@ -81,6 +93,7 @@ function WatchlistPage() {
     });
     setSymbol("");
     setNote("");
+    setMintAddress("");
   };
 
   return (
