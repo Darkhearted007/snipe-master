@@ -209,6 +209,7 @@ export const saveWatchlist = createServerFn({ method: "POST" })
         liquidity_sol: e.liquidity_sol,
         positive_streak: e.positive_streak,
         note: e.note ?? null,
+        mint_address: e.mint_address ?? null,
         added_at: new Date(e.added_at).toISOString(),
       }));
       const { error } = await supabase.from("watchlist_entries").insert(rows);
