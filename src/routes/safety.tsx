@@ -1,6 +1,14 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Search, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import {
+  Info,
+  Loader2,
+  Plus,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -140,19 +148,47 @@ function WatchlistSafetyCard({
   const verdict = isSafetyVerdict(q.data) ? q.data : null;
 
   return (
-    <Card>
+    <Card className={cn(!mint && "opacity-80")}>
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center justify-between text-sm">
           <span className="font-mono">{symbol}</span>
-          <Badge variant="outline" className="text-[10px] uppercase">
-            {venue}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {!mint && (
+              <Badge
+                variant="secondary"
+                className="text-[9px] uppercase text-muted-foreground"
+              >
+                rugcheck disabled
+              </Badge>
+            )}
+            <Badge variant="outline" className="text-[10px] uppercase">
+              {venue}
+            </Badge>
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-xs">
         {!mint ? (
-          <div className="rounded-md border border-dashed bg-muted/20 px-2 py-3 text-center text-[11px] text-muted-foreground">
-            No mint address on file — add one to enable rugcheck
+          <div className="rounded-md border border-dashed border-warning/40 bg-warning/5 px-3 py-4 text-center">
+            <Info className="mx-auto mb-1.5 h-4 w-4 text-warning" />
+            <div className="text-[11px] font-medium text-warning">
+              Mint address required
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Add a Solana mint to this watchlist entry to enable Rugcheck safety
+              screening.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2 h-7 gap-1 text-[11px]"
+              asChild
+            >
+              <Link to="/watchlist">
+                <Plus className="h-3 w-3" /> Add mint
+              </Link>
+            </Button>
           </div>
         ) : q.isLoading ? (
           <div className="flex items-center gap-2 text-muted-foreground">
