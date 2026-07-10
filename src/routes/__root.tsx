@@ -29,6 +29,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { useBotSimulator } from "@/hooks/use-bot-simulator";
 import { SolanaProviders } from "@/lib/solana-provider";
 import { useAuthSession } from "@/hooks/use-auth-session";
+import { useServerPersistence } from "@/hooks/use-server-persistence";
+import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
+import { useLiveExecutor } from "@/hooks/use-live-executor";
+import { useBotStore } from "@/lib/bot-store";
+import { useWalletReady } from "@/lib/solana-provider";
 
 
 
@@ -164,6 +169,10 @@ function AppShell() {
 
 function AppLayout({ children }: { children: ReactNode }) {
   useBotSimulator();
+  useServerPersistence(true);
+  const mode = useBotStore((s) => s.mode);
+  useDexScreenerStream(mode === "live");
+  const walletReady = useWalletReady();
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background">
@@ -172,10 +181,16 @@ function AppLayout({ children }: { children: ReactNode }) {
           <ControlHeader />
           <StatusStrip />
           <main className="flex-1 p-4">{children}</main>
+          {walletReady && <LiveExecutorMount />}
         </div>
       </div>
     </SidebarProvider>
   );
+}
+
+function LiveExecutorMount() {
+  useLiveExecutor();
+  return null;
 }
 
 function AuthGate({ children }: { children: ReactNode }) {

@@ -1,3 +1,7 @@
+// Buffer polyfill MUST be first — @solana/web3.js and wallet adapters
+// touch Buffer during module init, and this chunk is dynamic-imported so we
+// can't rely on the shim loaded by __root.tsx being present yet.
+import "./buffer-shim";
 import "../vendor/wallet-adapter.css";
 import { useMemo, type ReactNode } from "react";
 import {

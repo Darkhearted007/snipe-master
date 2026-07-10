@@ -18,6 +18,8 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiRpcRouteImport } from './routes/api/rpc'
 import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
+import { Route as ApiJupiterSwapRouteImport } from './routes/api/jupiter/swap'
+import { Route as ApiJupiterQuoteRouteImport } from './routes/api/jupiter/quote'
 
 const WatchlistRoute = WatchlistRouteImport.update({
   id: '/watchlist',
@@ -64,6 +66,16 @@ const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
   path: '/api/dexscreener',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiJupiterSwapRoute = ApiJupiterSwapRouteImport.update({
+  id: '/api/jupiter/swap',
+  path: '/api/jupiter/swap',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiJupiterQuoteRoute = ApiJupiterQuoteRouteImport.update({
+  id: '/api/jupiter/quote',
+  path: '/api/jupiter/quote',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +87,8 @@ export interface FileRoutesByFullPath {
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
   '/api/rpc': typeof ApiRpcRoute
+  '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
+  '/api/jupiter/swap': typeof ApiJupiterSwapRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +100,8 @@ export interface FileRoutesByTo {
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
   '/api/rpc': typeof ApiRpcRoute
+  '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
+  '/api/jupiter/swap': typeof ApiJupiterSwapRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +114,8 @@ export interface FileRoutesById {
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
   '/api/rpc': typeof ApiRpcRoute
+  '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
+  '/api/jupiter/swap': typeof ApiJupiterSwapRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +129,8 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/api/dexscreener'
     | '/api/rpc'
+    | '/api/jupiter/quote'
+    | '/api/jupiter/swap'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +142,8 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/api/dexscreener'
     | '/api/rpc'
+    | '/api/jupiter/quote'
+    | '/api/jupiter/swap'
   id:
     | '__root__'
     | '/'
@@ -133,6 +155,8 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/api/dexscreener'
     | '/api/rpc'
+    | '/api/jupiter/quote'
+    | '/api/jupiter/swap'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +169,8 @@ export interface RootRouteChildren {
   WatchlistRoute: typeof WatchlistRoute
   ApiDexscreenerRoute: typeof ApiDexscreenerRoute
   ApiRpcRoute: typeof ApiRpcRoute
+  ApiJupiterQuoteRoute: typeof ApiJupiterQuoteRoute
+  ApiJupiterSwapRoute: typeof ApiJupiterSwapRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,6 +238,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDexscreenerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/jupiter/swap': {
+      id: '/api/jupiter/swap'
+      path: '/api/jupiter/swap'
+      fullPath: '/api/jupiter/swap'
+      preLoaderRoute: typeof ApiJupiterSwapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/jupiter/quote': {
+      id: '/api/jupiter/quote'
+      path: '/api/jupiter/quote'
+      fullPath: '/api/jupiter/quote'
+      preLoaderRoute: typeof ApiJupiterQuoteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -225,6 +265,8 @@ const rootRouteChildren: RootRouteChildren = {
   WatchlistRoute: WatchlistRoute,
   ApiDexscreenerRoute: ApiDexscreenerRoute,
   ApiRpcRoute: ApiRpcRoute,
+  ApiJupiterQuoteRoute: ApiJupiterQuoteRoute,
+  ApiJupiterSwapRoute: ApiJupiterSwapRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
