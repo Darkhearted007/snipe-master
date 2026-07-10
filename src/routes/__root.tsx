@@ -139,12 +139,22 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <SolanaProviders>
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
+        <AppShell />
       </SolanaProviders>
       <Toaster theme="dark" />
     </QueryClientProvider>
+  );
+}
+
+function AppShell() {
+  const path = useRouterState({ select: (r) => r.location.pathname });
+  if (path === "/auth") return <Outlet />;
+  return (
+    <AuthGate>
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </AuthGate>
   );
 }
 
@@ -162,5 +172,22 @@ function AppLayout({ children }: { children: ReactNode }) {
       </div>
     </SidebarProvider>
   );
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const session = useAuthSession();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (session === null) navigate({ to: "/auth" });
+  }, [session, navigate]);
+  if (session === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-xs text-muted-foreground">Loading session…</div>
+      </div>
+    );
+  }
+  if (session === null) return null;
+  return <>{children}</>;
 }
 
