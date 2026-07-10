@@ -130,6 +130,7 @@ export const appendTradeHistory = createServerFn({ method: "POST" })
     };
     const { error } = await supabase.from("trade_history").insert({
       user_id: userId,
+      client_id: data.client_id,
       ts: new Date(data.ts).toISOString(),
       mode: data.mode,
       token: data.token,
@@ -144,7 +145,30 @@ export const appendTradeHistory = createServerFn({ method: "POST" })
       fee_wallet: data.fee_wallet ?? null,
       swap_tx_sig: data.swap_tx_sig ?? null,
       fee_tx_sig: data.fee_tx_sig ?? null,
+      settlement_status: data.settlement_status,
     });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Patch settlement status + fee tx signature on an existing trade row.
+ *  Matches by (user_id, client_id) so we don't need to round-trip a db id. */
+export const updateTradeSettlement = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((raw) => settlementInput.parse(raw))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as {
+      supabase: import("@supabase/supabase-js").SupabaseClient;
+      userId: string;
+    };
+    const { error } = await supabase
+      .from("trade_history")
+      .update({
+        settlement_status: data.settlement_status,
+        fee_tx_sig: data.fee_tx_sig ?? null,
+      })
+      .eq("user_id", userId)
+      .eq("client_id", data.client_id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
