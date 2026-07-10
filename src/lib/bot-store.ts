@@ -12,6 +12,7 @@ import type {
   TradeHistoryEntry,
   Venue,
   WatchEntry,
+  WatchSource,
 } from "./bot-types";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "./bot-types";
 

@@ -76,9 +76,14 @@ export const loadUserState = createServerFn({ method: "GET" })
     ]);
     return {
       settings: (s.data?.settings as Record<string, unknown> | null) ?? null,
-      trades: t.data ?? [],
-      logs: l.data ?? [],
-      watchlist: w.data ?? [],
+      trades: (t.data ?? []) as Array<Record<string, unknown>>,
+      logs: (l.data ?? []) as Array<Record<string, unknown>>,
+      watchlist: (w.data ?? []) as Array<Record<string, unknown>>,
+    } as {
+      settings: Record<string, unknown> | null;
+      trades: Array<Record<string, unknown>>;
+      logs: Array<Record<string, unknown>>;
+      watchlist: Array<Record<string, unknown>>;
     };
   });
 
