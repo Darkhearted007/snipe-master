@@ -21,6 +21,8 @@ import { useBotStore } from "@/lib/bot-store";
 import type { BotMode } from "@/lib/bot-types";
 import { useWalletReady } from "@/lib/solana-provider";
 import { WalletBar } from "@/components/wallet-bar";
+import { useHasRole } from "@/hooks/use-auth-session";
+import { RoleBadge } from "@/components/role-badge";
 
 export function ControlHeader() {
   const walletReady = useWalletReady();
