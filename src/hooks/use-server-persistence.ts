@@ -87,7 +87,10 @@ function retryWrite<T>(op: () => Promise<T>, label: string) {
  *  Hydrates once on mount; debounces settings/watchlist writes; flushes new
  *  log entries and trade rows on a timer. All writes retry with exponential
  *  backoff and never block the trading loop. */
-export function useServerPersistence(enabled: boolean) {
+export function useServerPersistence(enabledProp: boolean) {
+  const sessionReady = useSessionReady();
+  const enabled = enabledProp && sessionReady;
+
   const load = useServerFn(loadUserState);
   const saveSettings = useServerFn(saveUserSettings);
   const flushLogs = useServerFn(appendDecisionLogs);
