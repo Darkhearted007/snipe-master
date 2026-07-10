@@ -237,12 +237,14 @@ export function useServerPersistence(enabled: boolean) {
             "trade insert",
           );
         } catch (e) {
+          if (isUnauthorized(e)) continue;
           logStructured(e, {
             category: "persistence",
             severity: "error",
             context: { op: "trade insert", final: true, tradeId: t.id },
           });
         }
+
       }
       lastTradeId.current = s.tradeHistory[0]?.id ?? lastTradeId.current;
     }, 3_000);
