@@ -38,6 +38,11 @@ export function ControlHeader() {
   const confirmLive = useBotStore((s) => s.confirmLive);
   const breached = useBotStore((s) => s.guardrailBreached);
 
+  const trader = useHasRole(["trader", "admin"]);
+  const admin = useHasRole("admin");
+  const canTrade = trader.allowed;
+  const canKill = admin.allowed;
+
   const [liveDialog, setLiveDialog] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [killDialog, setKillDialog] = useState(false);
@@ -45,6 +50,12 @@ export function ControlHeader() {
 
   const handleMode = (m: BotMode) => {
     if (m === mode) return;
+    if (!canTrade) {
+      toast.error("Read-only access", {
+        description: "You need the trader or admin role to change modes.",
+      });
+      return;
+    }
     if (m === "live" && !liveConfirmed) {
       setLiveDialog(true);
       return;
