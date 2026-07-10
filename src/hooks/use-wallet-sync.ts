@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useBotStore } from "@/lib/bot-store";
 
-/** Mirror the real wallet-adapter state into the Zustand store. */
+/** Only mount this inside SolanaProviders (when useWalletReady() is true). */
 export function useWalletSync() {
   const { publicKey, connected, connecting, wallet } = useWallet();
   const setWalletFromAdapter = useBotStore((s) => s.setWalletFromAdapter);

@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { AlertTriangle, Play, Power, Square, Wallet } from "lucide-react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,14 +12,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -29,18 +19,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useBotStore } from "@/lib/bot-store";
 import type { BotMode } from "@/lib/bot-types";
-import { useWalletSync } from "@/hooks/use-wallet-sync";
-
-function shortAddr(a: string | null) {
-  if (!a) return "";
-  return `${a.slice(0, 4)}…${a.slice(-4)}`;
-}
+import { useWalletReady } from "@/lib/solana-provider";
+import { WalletBar } from "@/components/wallet-bar";
 
 export function ControlHeader() {
-  useWalletSync();
-
-  const { publicKey, connected, disconnect, wallet } = useWallet();
-  const { setVisible: openWalletModal } = useWalletModal();
+  const walletReady = useWalletReady();
+  const connected = useBotStore((s) => s.walletConnected);
 
   const mode = useBotStore((s) => s.mode);
   const status = useBotStore((s) => s.status);
@@ -56,8 +40,6 @@ export function ControlHeader() {
   const [acknowledged, setAcknowledged] = useState(false);
   const [killDialog, setKillDialog] = useState(false);
 
-  const walletAddress = publicKey?.toBase58() ?? null;
-  const walletName = wallet?.adapter.name ?? null;
 
   const handleMode = (m: BotMode) => {
     if (m === mode) return;
@@ -94,15 +76,6 @@ export function ControlHeader() {
     toast.success(`Bot running · ${mode.toUpperCase()}`);
   };
 
-  const copyAddress = async () => {
-    if (!walletAddress) return;
-    try {
-      await navigator.clipboard.writeText(walletAddress);
-      toast("Address copied");
-    } catch {
-      toast.error("Copy failed");
-    }
-  };
 
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur">
@@ -121,53 +94,15 @@ export function ControlHeader() {
       </div>
 
       {mode === "live" &&
-        (connected && walletAddress ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" className="gap-1.5">
-                <Wallet className="h-3.5 w-3.5" />
-                <span className="font-mono text-xs">{shortAddr(walletAddress)}</span>
-                {walletName && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {walletName}
-                  </span>
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="text-xs">
-                {walletName ? `${walletName} · connected` : "Connected wallet"}
-              </DropdownMenuLabel>
-              <div className="px-2 pb-2 font-mono text-[10px] break-all text-muted-foreground">
-                {walletAddress}
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={copyAddress}>Copy address</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openWalletModal(true)}>
-                Change wallet
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  void disconnect();
-                  toast("Wallet disconnected");
-                }}
-                className="text-danger"
-              >
-                Disconnect
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        (walletReady ? (
+          <WalletBar />
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openWalletModal(true)}
-            className="gap-1.5"
-          >
+          <Button variant="outline" size="sm" disabled className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" />
-            <span className="font-mono text-xs">Connect wallet</span>
+            <span className="font-mono text-xs">Loading wallet…</span>
           </Button>
         ))}
+
 
       <div className="ml-auto flex items-center gap-2">
         {startBlockedReason && !isRunning && (
