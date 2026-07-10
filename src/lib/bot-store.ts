@@ -401,6 +401,35 @@ export const useBotStore = create<BotState>()(
             }).slice(0, MAX_LOG),
           };
         }),
+      rollbackTradeFee: (tradeId, reason) =>
+        set((s) => {
+          const idx = s.tradeHistory.findIndex((t) => t.id === tradeId);
+          if (idx < 0) return {};
+          const prev = s.tradeHistory[idx];
+          if (prev.feePaidSol <= 0) return {}; // already rolled back / never charged
+          const restored = prev.feePaidSol;
+          const updated: TradeHistoryEntry = {
+            ...prev,
+            feePaidSol: 0,
+            netToUserSol: prev.pnlSol, // fee credited back to user
+            settlementStatus: "failed",
+            settlementError: `rolled back: ${reason}`,
+          };
+          const nextHistory = s.tradeHistory.slice();
+          nextHistory[idx] = updated;
+          // Restore the reserved fee to bankroll so subsequent sizing is correct.
+          return {
+            tradeHistory: nextHistory,
+            bankroll: s.bankroll + restored,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "audit",
+              summary: `Rollback#${tradeId.slice(0, 6)} fee ${restored.toFixed(5)} SOL credited back to user (${reason})`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
 
 
 
