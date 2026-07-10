@@ -115,7 +115,7 @@ interface BotState {
   toggleVenue: (v: Venue) => void;
   setGuardrails: (g: Partial<Guardrails>) => void;
 
-  addWatch: (input: { symbol: string; venue: Venue; note?: string }) =>
+  addWatch: (input: { symbol: string; venue: Venue; note?: string; mintAddress?: string | null }) =>
     | { ok: true }
     | { ok: false; error: string };
   removeWatch: (id: string) => void;
