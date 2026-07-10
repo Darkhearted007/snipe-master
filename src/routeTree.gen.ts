@@ -15,9 +15,11 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SafetyRouteImport } from './routes/safety'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiRpcRouteImport } from './routes/api/rpc'
 import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
+import { Route as ApiRugcheckMintRouteImport } from './routes/api/rugcheck.$mint'
 import { Route as ApiJupiterSwapRouteImport } from './routes/api/jupiter/swap'
 import { Route as ApiJupiterQuoteRouteImport } from './routes/api/jupiter/quote'
 
@@ -51,6 +53,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -66,6 +73,11 @@ const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
   path: '/api/dexscreener',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiRugcheckMintRoute = ApiRugcheckMintRouteImport.update({
+  id: '/api/rugcheck/$mint',
+  path: '/api/rugcheck/$mint',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiJupiterSwapRoute = ApiJupiterSwapRouteImport.update({
   id: '/api/jupiter/swap',
   path: '/api/jupiter/swap',
@@ -79,6 +91,7 @@ const ApiJupiterQuoteRoute = ApiJupiterQuoteRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/logs': typeof LogsRoute
   '/safety': typeof SafetyRoute
@@ -89,9 +102,11 @@ export interface FileRoutesByFullPath {
   '/api/rpc': typeof ApiRpcRoute
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
+  '/api/rugcheck/$mint': typeof ApiRugcheckMintRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/logs': typeof LogsRoute
   '/safety': typeof SafetyRoute
@@ -102,10 +117,12 @@ export interface FileRoutesByTo {
   '/api/rpc': typeof ApiRpcRoute
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
+  '/api/rugcheck/$mint': typeof ApiRugcheckMintRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
   '/logs': typeof LogsRoute
   '/safety': typeof SafetyRoute
@@ -116,11 +133,13 @@ export interface FileRoutesById {
   '/api/rpc': typeof ApiRpcRoute
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
+  '/api/rugcheck/$mint': typeof ApiRugcheckMintRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/auth'
     | '/logs'
     | '/safety'
@@ -131,9 +150,11 @@ export interface FileRouteTypes {
     | '/api/rpc'
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
+    | '/api/rugcheck/$mint'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/auth'
     | '/logs'
     | '/safety'
@@ -144,9 +165,11 @@ export interface FileRouteTypes {
     | '/api/rpc'
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
+    | '/api/rugcheck/$mint'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/auth'
     | '/logs'
     | '/safety'
@@ -157,10 +180,12 @@ export interface FileRouteTypes {
     | '/api/rpc'
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
+    | '/api/rugcheck/$mint'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
   LogsRoute: typeof LogsRoute
   SafetyRoute: typeof SafetyRoute
@@ -171,6 +196,7 @@ export interface RootRouteChildren {
   ApiRpcRoute: typeof ApiRpcRoute
   ApiJupiterQuoteRoute: typeof ApiJupiterQuoteRoute
   ApiJupiterSwapRoute: typeof ApiJupiterSwapRoute
+  ApiRugcheckMintRoute: typeof ApiRugcheckMintRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -217,6 +243,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -238,6 +271,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDexscreenerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/rugcheck/$mint': {
+      id: '/api/rugcheck/$mint'
+      path: '/api/rugcheck/$mint'
+      fullPath: '/api/rugcheck/$mint'
+      preLoaderRoute: typeof ApiRugcheckMintRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/jupiter/swap': {
       id: '/api/jupiter/swap'
       path: '/api/jupiter/swap'
@@ -257,6 +297,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
   LogsRoute: LogsRoute,
   SafetyRoute: SafetyRoute,
@@ -267,17 +308,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiRpcRoute: ApiRpcRoute,
   ApiJupiterQuoteRoute: ApiJupiterQuoteRoute,
   ApiJupiterSwapRoute: ApiJupiterSwapRoute,
+  ApiRugcheckMintRoute: ApiRugcheckMintRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
