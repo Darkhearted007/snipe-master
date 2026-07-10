@@ -35,6 +35,11 @@ const SETTINGS_KEYS = [
 
 /** Retry policy for all persistence writes: 5 attempts, 500ms→~16s with
  *  full jitter. Skips retry for auth/validation errors (401/403/422). */
+function isUnauthorized(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /Unauthorized|401|No authorization header/i.test(msg);
+}
+
 function retryWrite<T>(op: () => Promise<T>, label: string) {
   return retryWithBackoff(op, {
     baseMs: 500,
@@ -55,6 +60,7 @@ function retryWrite<T>(op: () => Promise<T>, label: string) {
     },
   });
 }
+
 
 /** Bidirectional sync between the bot store and Lovable Cloud.
  *  Hydrates once on mount; debounces settings/watchlist writes; flushes new
