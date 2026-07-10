@@ -9,6 +9,7 @@ const settingsInput = z.object({
 });
 
 const tradeInput = z.object({
+  client_id: z.string(),
   ts: z.number(),
   mode: z.enum(["paper", "live"]),
   token: z.string(),
@@ -22,6 +23,13 @@ const tradeInput = z.object({
   net_to_user_sol: z.number().default(0),
   fee_wallet: z.string().nullable().optional(),
   swap_tx_sig: z.string().nullable().optional(),
+  fee_tx_sig: z.string().nullable().optional(),
+  settlement_status: z.enum(["n/a", "pending", "settled", "failed"]).default("n/a"),
+});
+
+const settlementInput = z.object({
+  client_id: z.string(),
+  settlement_status: z.enum(["n/a", "pending", "settled", "failed"]),
   fee_tx_sig: z.string().nullable().optional(),
 });
 
