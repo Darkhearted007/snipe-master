@@ -622,7 +622,7 @@ export const useBotStore = create<BotState>()(
           };
         }),
 
-      addWatch: ({ symbol, venue, note }) => {
+      addWatch: ({ symbol, venue, note, mintAddress }) => {
         const s = get();
         const clean = symbol.trim().toUpperCase();
         if (!/^[A-Z0-9]+\/[A-Z0-9]+$/.test(clean)) {
