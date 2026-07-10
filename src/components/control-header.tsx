@@ -76,15 +76,6 @@ export function ControlHeader() {
     toast.success(`Bot running · ${mode.toUpperCase()}`);
   };
 
-  const copyAddress = async () => {
-    if (!walletAddress) return;
-    try {
-      await navigator.clipboard.writeText(walletAddress);
-      toast("Address copied");
-    } catch {
-      toast.error("Copy failed");
-    }
-  };
 
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur">
