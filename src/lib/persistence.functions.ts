@@ -57,6 +57,7 @@ const watchInput = z.object({
       liquidity_sol: z.number(),
       positive_streak: z.number().int(),
       note: z.string().nullable().optional(),
+      mint_address: z.string().min(32).max(64).nullable().optional(),
       added_at: z.number(),
     }),
   ),
