@@ -29,7 +29,10 @@ function getEndpoint(): string {
 
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => getEndpoint(), []);
-  const wallets = useMemo(() => NO_LEGACY_ADAPTERS, []);
+  const wallets = useMemo(
+    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
+    [],
+  );
   return (
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
