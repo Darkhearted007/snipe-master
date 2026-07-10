@@ -34,6 +34,7 @@ import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
 import { useLiveExecutor } from "@/hooks/use-live-executor";
 import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
+import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 
 
 
@@ -147,9 +148,11 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SolanaProviders>
-        <AppShell />
-      </SolanaProviders>
+      <GlobalErrorBoundary>
+        <SolanaProviders>
+          <AppShell />
+        </SolanaProviders>
+      </GlobalErrorBoundary>
       <Toaster theme="dark" />
     </QueryClientProvider>
   );
