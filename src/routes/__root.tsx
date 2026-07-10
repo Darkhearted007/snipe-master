@@ -169,6 +169,10 @@ function AppShell() {
 
 function AppLayout({ children }: { children: ReactNode }) {
   useBotSimulator();
+  useServerPersistence(true);
+  const mode = useBotStore((s) => s.mode);
+  useDexScreenerStream(mode === "live");
+  const walletReady = useWalletReady();
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background">
@@ -177,10 +181,16 @@ function AppLayout({ children }: { children: ReactNode }) {
           <ControlHeader />
           <StatusStrip />
           <main className="flex-1 p-4">{children}</main>
+          {walletReady && <LiveExecutorMount />}
         </div>
       </div>
     </SidebarProvider>
   );
+}
+
+function LiveExecutorMount() {
+  useLiveExecutor();
+  return null;
 }
 
 function AuthGate({ children }: { children: ReactNode }) {
