@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   Star,
   Target,
+  UserCog,
 } from "lucide-react";
 import {
   Sidebar,
@@ -20,6 +21,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useBotStore } from "@/lib/bot-store";
+import { useHasRole } from "@/hooks/use-auth-session";
 import { StatusDot } from "./status-dot";
 
 const nav = [
@@ -35,6 +37,8 @@ export function AppSidebar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const mode = useBotStore((s) => s.mode);
   const status = useBotStore((s) => s.status);
+  const { allowed: isAdmin } = useHasRole("admin");
+
 
   return (
     <Sidebar collapsible="icon">
