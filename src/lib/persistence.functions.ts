@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getOptionalPersistenceAuth } from "@/lib/persistence-auth.server";
+import type { Json } from "@/integrations/supabase/types";
 
 // settings payload arrives as a JSON string to avoid TanStack's
 // unknown-serialization guard.
@@ -103,7 +104,7 @@ export const saveUserSettings = createServerFn({ method: "POST" })
     const auth = await getOptionalPersistenceAuth();
     if (!auth) return { ok: false, skipped: true };
     const { supabase, userId } = auth;
-    let parsed: unknown;
+    let parsed: Json;
     try {
       parsed = JSON.parse(data.settingsJson);
     } catch {
