@@ -121,13 +121,15 @@ export function useServerPersistence(enabled: boolean) {
         retryWrite(
           () => saveSettings({ data: { settingsJson: JSON.stringify(snap) } }),
           "settings save",
-        ).catch((e) =>
+        ).catch((e) => {
+          if (isUnauthorized(e)) return;
           logStructured(e, {
             category: "persistence",
             severity: "error",
             context: { op: "settings save", final: true },
-          }),
-        );
+          });
+        });
+
       }, 800) as unknown as number;
     });
     return () => {
