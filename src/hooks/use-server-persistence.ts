@@ -9,6 +9,7 @@ import {
   saveWatchlist,
   type LoadedState,
 } from "@/lib/persistence.functions";
+import { logStructured } from "@/lib/structured-logger";
 
 const SETTINGS_KEYS = [
   "mode",
@@ -55,9 +56,7 @@ export function useServerPersistence(enabled: boolean) {
         lastLogId.current = logs[0]?.id ?? null;
         lastTradeId.current = trades[0]?.id ?? null;
       } catch (e) {
-        useBotStore
-          .getState()
-          .logAudit(`Cloud hydrate failed: ${(e as Error).message}`, "error");
+        logStructured(e, { category: "persistence", context: { op: "hydrate" } });
       }
     })();
   }, [enabled, load]);
@@ -71,9 +70,7 @@ export function useServerPersistence(enabled: boolean) {
       for (const k of SETTINGS_KEYS) snap[k] = (s as unknown as Record<string, unknown>)[k];
       settingsTimer.current = window.setTimeout(() => {
         saveSettings({ data: { settingsJson: JSON.stringify(snap) } }).catch((e) =>
-          useBotStore
-            .getState()
-            .logAudit(`Cloud settings save failed: ${(e as Error).message}`, "error"),
+          logStructured(e, { category: "persistence", context: { op: "settings save" } }),
         );
       }, 800) as unknown as number;
     });
@@ -101,9 +98,7 @@ export function useServerPersistence(enabled: boolean) {
       }));
       watchTimer.current = window.setTimeout(() => {
         flushWatch({ data: { entries } }).catch((e) =>
-          useBotStore
-            .getState()
-            .logAudit(`Cloud watchlist save failed: ${(e as Error).message}`, "error"),
+          logStructured(e, { category: "persistence", context: { op: "watchlist save" } }),
         );
       }, 1500) as unknown as number;
     });
