@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useBotStore } from "@/lib/bot-store";
 import {
@@ -12,6 +12,27 @@ import {
 import { logStructured } from "@/lib/structured-logger";
 import { retryWithBackoff, isPermanentError } from "@/lib/retry-backoff";
 import { supabase } from "@/integrations/supabase/client";
+
+/** Track Supabase session readiness so persistence writes never fire before a
+ *  bearer token exists — eliminates the SIWS-flow 401 race. */
+function useSessionReady(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled) setReady(!!data.session?.access_token);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setReady(!!session?.access_token);
+    });
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+  return ready;
+}
+
 
 async function hasSession(): Promise<boolean> {
   try {
