@@ -145,88 +145,122 @@ export function useLiveExecutor() {
             await persistSettlement(t.id, "settled");
             continue;
           }
-          try {
-            const logAudit = useBotStore.getState().logAudit;
-            const shortId = t.id.slice(0, 6);
+          const logAudit = useBotStore.getState().logAudit;
+          const shortId = t.id.slice(0, 6);
 
-            // 1. Pre-settlement balance snapshot.
-            const beforeLamports = await getBalanceLamports(connection, publicKey);
-            if (beforeLamports != null) {
+          // If a prior attempt already broadcast a signature, check the chain
+          // FIRST — a network blip after send would otherwise re-charge.
+          if (t.feeTxSig) {
+            const already = await isSignatureConfirmed(connection, t.feeTxSig);
+            if (already) {
               logAudit(
-                `Reconcile#${shortId} pre-settlement balance ${(beforeLamports / 1e9).toFixed(6)} SOL`,
+                `Retry#${shortId} skipped — prior signature ${t.feeTxSig.slice(0, 8)}… already confirmed`,
                 "audit",
               );
+              setSettlement(t.id, { status: "settled", feeTxSig: t.feeTxSig });
+              await persistSettlement(t.id, "settled", t.feeTxSig);
+              continue;
             }
-
-            const sig = await sendSolTransfer({
-              connection,
-              wallet: adapter,
-              toAddress: t.feeWallet as string,
-              lamports,
-            });
-
-            // 2. Wait for on-chain confirmation before sampling post-balance.
-            try {
-              const { blockhash, lastValidBlockHeight } =
-                await connection.getLatestBlockhash("confirmed");
-              await Promise.race([
-                connection.confirmTransaction(
-                  { signature: sig, blockhash, lastValidBlockHeight },
-                  "confirmed",
-                ),
-                new Promise((_r, rej) =>
-                  setTimeout(
-                    () => rej(new Error("confirm timeout")),
-                    CONFIRM_TIMEOUT_MS,
-                  ),
-                ),
-              ]);
-            } catch (ce) {
-              logAudit(
-                `Reconcile#${shortId} confirm slow/failed (${(ce as Error).message}); sampling anyway`,
-                "audit",
-              );
-            }
-
-            // 3. Post-settlement balance snapshot + delta check.
-            const afterLamports = await getBalanceLamports(connection, publicKey);
-            let reconcileNote: string | undefined;
-            if (beforeLamports != null && afterLamports != null) {
-              const observedDelta = beforeLamports - afterLamports; // lamports out
-              const drift = Math.abs(observedDelta - lamports);
-              const ok = drift <= RECONCILE_TOLERANCE_LAMPORTS;
-              logAudit(
-                `Reconcile#${shortId} post ${(afterLamports / 1e9).toFixed(6)} SOL · out ${(observedDelta / 1e9).toFixed(6)} · expected ${(lamports / 1e9).toFixed(6)} · drift ${drift} lamports · ${ok ? "OK" : "MISMATCH"}`,
-                ok ? "audit" : "error",
-              );
-              if (!ok) {
-                reconcileNote = `reconcile mismatch: drift ${drift} lamports`;
-              }
-              // Net-to-user reconciliation: user retained pnl - fee.
-              logAudit(
-                `Reconcile#${shortId} net-to-user retained ${t.netToUserSol.toFixed(6)} SOL in wallet ${publicKey.toBase58().slice(0, 6)}…`,
-                "audit",
-              );
-            } else {
-              logAudit(
-                `Reconcile#${shortId} balance snapshot unavailable; skipped delta check`,
-                "audit",
-              );
-            }
-
-            setSettlement(t.id, {
-              status: "settled",
-              feeTxSig: sig,
-              error: reconcileNote,
-            });
-            await persistSettlement(t.id, "settled", sig);
-          } catch (e) {
-            const msg = (e as Error).message ?? "unknown error";
-            // Un-mark so a future subscribe tick can retry.
-            processedRef.current.delete(t.id);
-            setSettlement(t.id, { status: "failed", error: msg });
-            await persistSettlement(t.id, "failed");
           }
+
+          // 1. Pre-settlement balance snapshot.
+          const beforeLamports = await getBalanceLamports(connection, publicKey);
+          if (beforeLamports != null) {
+            logAudit(
+              `Reconcile#${shortId} pre-settlement balance ${(beforeLamports / 1e9).toFixed(6)} SOL`,
+              "audit",
+            );
+          }
+
+          let sig: string | null = null;
+          let lastError: string | undefined;
+
+          // 2. Retry loop with exponential backoff.
+          for (let attempt = 0; attempt < MAX_SETTLE_ATTEMPTS; attempt++) {
+            try {
+              sig = await sendSolTransfer({
+                connection,
+                wallet: adapter,
+                toAddress: t.feeWallet as string,
+                lamports,
+              });
+              break; // success — proceed to confirm
+            } catch (e) {
+              lastError = (e as Error).message ?? "unknown error";
+              const permanent = isPermanentError(lastError);
+              logAudit(
+                `Retry#${shortId} attempt ${attempt + 1}/${MAX_SETTLE_ATTEMPTS} failed · ${lastError}${permanent ? " (permanent)" : ""}`,
+                "error",
+              );
+              if (permanent || attempt === MAX_SETTLE_ATTEMPTS - 1) break;
+              await new Promise((r) =>
+                setTimeout(r, computeBackoff(attempt, { baseMs: 800, maxMs: 8_000 })),
+              );
+            }
+          }
+
+          // 2a. All send attempts failed → ROLLBACK accounting so the user is
+          // credited for the fee they were never actually charged.
+          if (!sig) {
+            useBotStore
+              .getState()
+              .rollbackTradeFee(t.id, lastError ?? "unknown send error");
+            await persistSettlement(t.id, "failed");
+            continue;
+          }
+
+          // 3. Confirm on-chain before sampling post-balance.
+          try {
+            const { blockhash, lastValidBlockHeight } =
+              await connection.getLatestBlockhash("confirmed");
+            await Promise.race([
+              connection.confirmTransaction(
+                { signature: sig, blockhash, lastValidBlockHeight },
+                "confirmed",
+              ),
+              new Promise((_r, rej) =>
+                setTimeout(
+                  () => rej(new Error("confirm timeout")),
+                  CONFIRM_TIMEOUT_MS,
+                ),
+              ),
+            ]);
+          } catch (ce) {
+            logAudit(
+              `Reconcile#${shortId} confirm slow/failed (${(ce as Error).message}); sampling anyway`,
+              "audit",
+            );
+          }
+
+          // 4. Post-settlement balance snapshot + delta check.
+          const afterLamports = await getBalanceLamports(connection, publicKey);
+          let reconcileNote: string | undefined;
+          if (beforeLamports != null && afterLamports != null) {
+            const observedDelta = beforeLamports - afterLamports;
+            const drift = Math.abs(observedDelta - lamports);
+            const ok = drift <= RECONCILE_TOLERANCE_LAMPORTS;
+            logAudit(
+              `Reconcile#${shortId} post ${(afterLamports / 1e9).toFixed(6)} SOL · out ${(observedDelta / 1e9).toFixed(6)} · expected ${(lamports / 1e9).toFixed(6)} · drift ${drift} lamports · ${ok ? "OK" : "MISMATCH"}`,
+              ok ? "audit" : "error",
+            );
+            if (!ok) reconcileNote = `reconcile mismatch: drift ${drift} lamports`;
+            logAudit(
+              `Reconcile#${shortId} net-to-user retained ${t.netToUserSol.toFixed(6)} SOL in wallet ${publicKey.toBase58().slice(0, 6)}…`,
+              "audit",
+            );
+          } else {
+            logAudit(
+              `Reconcile#${shortId} balance snapshot unavailable; skipped delta check`,
+              "audit",
+            );
+          }
+
+          setSettlement(t.id, {
+            status: "settled",
+            feeTxSig: sig,
+            error: reconcileNote,
+          });
+          await persistSettlement(t.id, "settled", sig);
         }
       });
     });
