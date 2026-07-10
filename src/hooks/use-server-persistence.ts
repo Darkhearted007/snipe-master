@@ -143,7 +143,7 @@ export function useServerPersistence(enabledProp: boolean) {
         lastLogId.current = logs[0]?.id ?? null;
         lastTradeId.current = trades[0]?.id ?? null;
       } catch (e) {
-        if (isUnauthorized(e)) { hydrated.current = false; return; }
+        if (isUnauthorized(e) || isNoSession(e)) { hydrated.current = false; return; }
         logStructured(e, {
           category: "persistence",
           severity: "error",
@@ -168,7 +168,7 @@ export function useServerPersistence(enabledProp: boolean) {
           () => saveSettings({ data: { settingsJson: JSON.stringify(snap) } }),
           "settings save",
         ).catch((e) => {
-          if (isUnauthorized(e)) return;
+          if (isUnauthorized(e) || isNoSession(e)) return;
           logStructured(e, {
             category: "persistence",
             severity: "error",
@@ -203,7 +203,7 @@ export function useServerPersistence(enabledProp: boolean) {
       watchTimer.current = window.setTimeout(async () => {
         if (!(await hasSession())) return;
         retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) => {
-          if (isUnauthorized(e)) return;
+          if (isUnauthorized(e) || isNoSession(e)) return;
           logStructured(e, {
             category: "persistence",
             severity: "error",
@@ -283,7 +283,7 @@ export function useServerPersistence(enabledProp: boolean) {
             "trade insert",
           );
         } catch (e) {
-          if (isUnauthorized(e)) continue;
+          if (isUnauthorized(e) || isNoSession(e)) continue;
           logStructured(e, {
             category: "persistence",
             severity: "error",
