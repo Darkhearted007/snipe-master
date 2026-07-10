@@ -97,6 +97,7 @@ export function useServerPersistence(enabled: boolean) {
         lastLogId.current = logs[0]?.id ?? null;
         lastTradeId.current = trades[0]?.id ?? null;
       } catch (e) {
+        if (isUnauthorized(e)) { hydrated.current = false; return; }
         logStructured(e, {
           category: "persistence",
           severity: "error",
@@ -104,6 +105,7 @@ export function useServerPersistence(enabled: boolean) {
           context: { op: "hydrate", final: true },
         });
       }
+
     })();
   }, [enabled, load]);
 
