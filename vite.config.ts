@@ -6,6 +6,7 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import path from "node:path";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 export default defineConfig({
   tanstackStart: {
@@ -14,6 +15,16 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    plugins: [
+      // Inject Buffer/process/global polyfills into the client bundle so
+      // @solana/web3.js and wallet-adapter chunks see them before evaluation.
+      // Applies only to the client build, not SSR (workerd already has them).
+      nodePolyfills({
+        include: ["buffer", "process"],
+        globals: { Buffer: true, global: true, process: true },
+        protocolImports: false,
+      }),
+    ],
     resolve: {
       alias: [
         {
