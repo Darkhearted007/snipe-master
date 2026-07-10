@@ -57,6 +57,7 @@ const watchInput = z.object({
       liquidity_sol: z.number(),
       positive_streak: z.number().int(),
       note: z.string().nullable().optional(),
+      mint_address: z.string().min(32).max(64).nullable().optional(),
       added_at: z.number(),
     }),
   ),
@@ -208,6 +209,7 @@ export const saveWatchlist = createServerFn({ method: "POST" })
         liquidity_sol: e.liquidity_sol,
         positive_streak: e.positive_streak,
         note: e.note ?? null,
+        mint_address: e.mint_address ?? null,
         added_at: new Date(e.added_at).toISOString(),
       }));
       const { error } = await supabase.from("watchlist_entries").insert(rows);

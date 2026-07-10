@@ -198,6 +198,7 @@ export function useServerPersistence(enabledProp: boolean) {
         liquidity_sol: w.liquiditySol,
         positive_streak: w.positiveStreak,
         note: w.note ?? null,
+        mint_address: w.mintAddress ?? null,
         added_at: w.addedAt,
       }));
       watchTimer.current = window.setTimeout(async () => {

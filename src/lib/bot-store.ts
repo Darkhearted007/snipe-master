@@ -115,7 +115,7 @@ interface BotState {
   toggleVenue: (v: Venue) => void;
   setGuardrails: (g: Partial<Guardrails>) => void;
 
-  addWatch: (input: { symbol: string; venue: Venue; note?: string }) =>
+  addWatch: (input: { symbol: string; venue: Venue; note?: string; mintAddress?: string | null }) =>
     | { ok: true }
     | { ok: false; error: string };
   removeWatch: (id: string) => void;
@@ -622,7 +622,7 @@ export const useBotStore = create<BotState>()(
           };
         }),
 
-      addWatch: ({ symbol, venue, note }) => {
+      addWatch: ({ symbol, venue, note, mintAddress }) => {
         const s = get();
         const clean = symbol.trim().toUpperCase();
         if (!/^[A-Z0-9]+\/[A-Z0-9]+$/.test(clean)) {
@@ -688,6 +688,7 @@ export const useBotStore = create<BotState>()(
               positiveStreak: 0,
               addedAt: Date.now(),
               note,
+              mintAddress: mintAddress?.trim() || null,
             },
             ...s.watchlist,
           ],
@@ -1241,6 +1242,7 @@ export const useBotStore = create<BotState>()(
               positiveStreak: Number(w.positive_streak ?? 0),
               addedAt: new Date(String(w.added_at ?? Date.now())).getTime(),
               note: (w.note as string | undefined) ?? undefined,
+              mintAddress: (w.mint_address as string | null | undefined) ?? null,
             }));
           }
           return patch;
