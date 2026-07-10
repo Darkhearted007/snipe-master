@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useBotStore } from "@/lib/bot-store";
 import { useTokenSafety } from "@/hooks/use-token-safety";
+import type { SafetyVerdict } from "@/routes/api/rugcheck.$mint";
 import { cn } from "@/lib/utils";
 
 // Known-safe examples users can click to sanity-check the pipeline.
@@ -172,7 +173,7 @@ function SafetyResult({
     );
   }
 
-  const v = data as Extract<typeof data, { ok: true }>;
+  const v: SafetyVerdict = data;
   const verdictTone =
     v.verdict === "safe"
       ? "border-success/40 bg-success/5"
