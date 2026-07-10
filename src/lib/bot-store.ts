@@ -164,6 +164,7 @@ const initial = {
   walletAddress: null as string | null,
   walletConnecting: false,
   walletError: null as string | null,
+  walletBalanceSol: null as number | null,
 
   userDeposit: initialBankroll,
   bankroll: initialBankroll,
