@@ -56,6 +56,7 @@ interface BotState {
   walletAddress: string | null;
   walletConnecting: boolean;
   walletError: string | null;
+  walletBalanceSol: number | null;
 
   // Funds
   userDeposit: number;
@@ -102,6 +103,7 @@ interface BotState {
     address: string | null;
     walletName: string | null;
   }) => void;
+  setWalletBalance: (sol: number | null) => void;
   setUserDeposit: (v: number) => { ok: boolean; error?: string };
   setPlatformFeePct: (v: number) => void;
 
@@ -162,6 +164,7 @@ const initial = {
   walletAddress: null as string | null,
   walletConnecting: false,
   walletError: null as string | null,
+  walletBalanceSol: null as number | null,
 
   userDeposit: initialBankroll,
   bankroll: initialBankroll,
@@ -313,6 +316,8 @@ export const useBotStore = create<BotState>()(
             summary: "Wallet disconnected",
           }).slice(0, MAX_LOG),
         })),
+
+      setWalletBalance: (sol) => set({ walletBalanceSol: sol }),
 
       setWalletFromAdapter: ({ connected, connecting, address, walletName }) => {
         const s = get();
