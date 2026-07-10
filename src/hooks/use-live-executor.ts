@@ -114,13 +114,79 @@ export function useLiveExecutor() {
             continue;
           }
           try {
+            const logAudit = useBotStore.getState().logAudit;
+            const shortId = t.id.slice(0, 6);
+
+            // 1. Pre-settlement balance snapshot.
+            const beforeLamports = await getBalanceLamports(connection, publicKey);
+            if (beforeLamports != null) {
+              logAudit(
+                `Reconcile#${shortId} pre-settlement balance ${(beforeLamports / 1e9).toFixed(6)} SOL`,
+                "audit",
+              );
+            }
+
             const sig = await sendSolTransfer({
               connection,
               wallet: adapter,
               toAddress: t.feeWallet as string,
               lamports,
             });
-            setSettlement(t.id, { status: "settled", feeTxSig: sig });
+
+            // 2. Wait for on-chain confirmation before sampling post-balance.
+            try {
+              const { blockhash, lastValidBlockHeight } =
+                await connection.getLatestBlockhash("confirmed");
+              await Promise.race([
+                connection.confirmTransaction(
+                  { signature: sig, blockhash, lastValidBlockHeight },
+                  "confirmed",
+                ),
+                new Promise((_r, rej) =>
+                  setTimeout(
+                    () => rej(new Error("confirm timeout")),
+                    CONFIRM_TIMEOUT_MS,
+                  ),
+                ),
+              ]);
+            } catch (ce) {
+              logAudit(
+                `Reconcile#${shortId} confirm slow/failed (${(ce as Error).message}); sampling anyway`,
+                "audit",
+              );
+            }
+
+            // 3. Post-settlement balance snapshot + delta check.
+            const afterLamports = await getBalanceLamports(connection, publicKey);
+            let reconcileNote: string | undefined;
+            if (beforeLamports != null && afterLamports != null) {
+              const observedDelta = beforeLamports - afterLamports; // lamports out
+              const drift = Math.abs(observedDelta - lamports);
+              const ok = drift <= RECONCILE_TOLERANCE_LAMPORTS;
+              logAudit(
+                `Reconcile#${shortId} post ${(afterLamports / 1e9).toFixed(6)} SOL · out ${(observedDelta / 1e9).toFixed(6)} · expected ${(lamports / 1e9).toFixed(6)} · drift ${drift} lamports · ${ok ? "OK" : "MISMATCH"}`,
+                ok ? "audit" : "error",
+              );
+              if (!ok) {
+                reconcileNote = `reconcile mismatch: drift ${drift} lamports`;
+              }
+              // Net-to-user reconciliation: user retained pnl - fee.
+              logAudit(
+                `Reconcile#${shortId} net-to-user retained ${t.netToUserSol.toFixed(6)} SOL in wallet ${publicKey.toBase58().slice(0, 6)}…`,
+                "audit",
+              );
+            } else {
+              logAudit(
+                `Reconcile#${shortId} balance snapshot unavailable; skipped delta check`,
+                "audit",
+              );
+            }
+
+            setSettlement(t.id, {
+              status: "settled",
+              feeTxSig: sig,
+              error: reconcileNote,
+            });
             await persistSettlement(t.id, "settled", sig);
           } catch (e) {
             const msg = (e as Error).message ?? "unknown error";
