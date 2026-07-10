@@ -136,6 +136,13 @@ interface BotState {
     patch: { status: TradeHistoryEntry["settlementStatus"]; feeTxSig?: string; error?: string },
   ) => void;
 
+  /**
+   * Rollback the accounting for a fee that could not be settled on-chain
+   * after all retries. Credits the reserved fee back to net-to-user so the
+   * bankroll reflects what the wallet actually holds. Idempotent.
+   */
+  rollbackTradeFee: (tradeId: string, reason: string) => void;
+
   tick: () => void;
   healthCheck: () => void;
 
