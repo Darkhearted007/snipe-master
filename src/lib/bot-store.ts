@@ -56,6 +56,7 @@ interface BotState {
   walletAddress: string | null;
   walletConnecting: boolean;
   walletError: string | null;
+  walletBalanceSol: number | null;
 
   // Funds
   userDeposit: number;
