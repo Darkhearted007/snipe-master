@@ -77,6 +77,7 @@ export function useServerPersistence(enabled: boolean) {
     if (!enabled || hydrated.current) return;
     hydrated.current = true;
     (async () => {
+      if (!(await hasSession())) { hydrated.current = false; return; }
       try {
         const payload = (await retryWrite(() => load(), "hydrate")) as LoadedState;
         useBotStore.getState().hydrateFromServer({
