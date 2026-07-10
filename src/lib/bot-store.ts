@@ -689,6 +689,7 @@ export const useBotStore = create<BotState>()(
               addedAt: Date.now(),
               note,
               mintAddress: mintAddress?.trim() || null,
+            },
             ...s.watchlist,
           ],
           log: prepend(
