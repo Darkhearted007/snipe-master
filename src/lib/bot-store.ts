@@ -317,6 +317,8 @@ export const useBotStore = create<BotState>()(
           }).slice(0, MAX_LOG),
         })),
 
+      setWalletBalance: (sol) => set({ walletBalanceSol: sol }),
+
       setWalletFromAdapter: ({ connected, connecting, address, walletName }) => {
         const s = get();
         const changed =
