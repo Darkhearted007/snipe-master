@@ -144,7 +144,8 @@ export function useServerPersistence(enabled: boolean) {
         note: w.note ?? null,
         added_at: w.addedAt,
       }));
-      watchTimer.current = window.setTimeout(() => {
+      watchTimer.current = window.setTimeout(async () => {
+        if (!(await hasSession())) return;
         retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) =>
           logStructured(e, {
             category: "persistence",
