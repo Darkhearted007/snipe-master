@@ -248,6 +248,7 @@ function WatchlistPage() {
             Manual entries bypass auto-curation but still pass the safety filter
             above.
           </p>
+          <MintSafetyPreview mint={mintAddress} />
         </CardContent>
       </Card>
 
