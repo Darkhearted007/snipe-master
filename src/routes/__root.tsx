@@ -12,6 +12,8 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
+  useNavigate,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -26,6 +28,8 @@ import { StatusStrip } from "@/components/status-strip";
 import { Toaster } from "@/components/ui/sonner";
 import { useBotSimulator } from "@/hooks/use-bot-simulator";
 import { SolanaProviders } from "@/lib/solana-provider";
+import { useAuthSession } from "@/hooks/use-auth-session";
+
 
 
 function NotFoundComponent() {
