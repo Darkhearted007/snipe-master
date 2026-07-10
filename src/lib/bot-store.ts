@@ -1171,6 +1171,11 @@ export const useBotStore = create<BotState>()(
         tradeHistory: s.tradeHistory,
       }),
       version: 3,
+      // Skip synchronous hydration during SSR so the server-rendered HTML
+      // uses defaults; useBotStore.persist.rehydrate() is called on the
+      // client after mount to load the persisted state without triggering
+      // a React hydration mismatch.
+      skipHydration: true,
 
       onRehydrateStorage: () => (state) => {
         // Never restore "running" — always start idle so the simulator does not

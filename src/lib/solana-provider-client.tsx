@@ -9,12 +9,14 @@ import {
   WalletProvider,
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
+import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
+import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
 
-// Wallet Standard auto-discovers Phantom, Solflare, Backpack, Coinbase,
-// Trust, Glow, etc. from `window`. We keep the explicit adapters list
-// empty so users see every installed browser wallet without us shipping
-// ledger/hid/webusb native modules.
-const NO_LEGACY_ADAPTERS: [] = [];
+// Wallet Standard auto-discovers modern wallets (Phantom, Solflare,
+// Backpack, Coinbase, Trust, Glow, OKX, …) from `window`. We ALSO register
+// the legacy Phantom + Solflare adapters as an explicit fallback so the
+// modal always shows entries even if Wallet Standard registration is late
+// or the injected provider hasn't fired its ready event yet.
 
 function getEndpoint(): string {
   // Browser calls our server-side Helius proxy so the API key never leaves the sandbox.
@@ -27,7 +29,10 @@ function getEndpoint(): string {
 
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => getEndpoint(), []);
-  const wallets = useMemo(() => NO_LEGACY_ADAPTERS, []);
+  const wallets = useMemo(
+    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
+    [],
+  );
   return (
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
