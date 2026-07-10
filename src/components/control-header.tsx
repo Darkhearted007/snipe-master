@@ -39,8 +39,13 @@ function shortAddr(a: string | null) {
 export function ControlHeader() {
   useWalletSync();
 
-  const { publicKey, connected, disconnect, wallet } = useWallet();
-  const { setVisible: openWalletModal } = useWalletModal();
+  const walletCtx = useContext(WalletContext);
+  const modalCtx = useContext(WalletModalContext);
+  const publicKey = walletCtx?.publicKey ?? null;
+  const connected = walletCtx?.connected ?? false;
+  const disconnect = walletCtx?.disconnect ?? (async () => {});
+  const wallet = walletCtx?.wallet ?? null;
+  const openWalletModal = (v: boolean) => modalCtx?.setVisible(v);
 
   const mode = useBotStore((s) => s.mode);
   const status = useBotStore((s) => s.status);
