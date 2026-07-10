@@ -19,12 +19,44 @@ import { useBotStore } from "@/lib/bot-store";
 import { executeSwap, sendSolTransfer, SOL_MINT } from "@/lib/jupiter-client";
 import { updateTradeSettlement } from "@/lib/persistence.functions";
 import { supabase } from "@/integrations/supabase/client";
+import { computeBackoff } from "@/lib/retry-backoff";
 
 const MIN_FEE_LAMPORTS = 1_000; // dust guard: below this, skip the transfer
 // Reconciliation tolerance: observed delta may differ from expected by up to
 // ~0.0005 SOL to accommodate Solana base tx fee (~5000 lamports) + priority tip.
 const RECONCILE_TOLERANCE_LAMPORTS = 500_000;
 const CONFIRM_TIMEOUT_MS = 30_000;
+const MAX_SETTLE_ATTEMPTS = 4;
+
+/** Permanent errors — user rejected, insufficient funds, etc. — don't retry. */
+function isPermanentError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("user reject") ||
+    m.includes("rejected the request") ||
+    m.includes("insufficient") ||
+    m.includes("unauthorized") ||
+    m.includes("invalid public key") ||
+    m.includes("invalid address")
+  );
+}
+
+/** Ask the RPC if a signature is already confirmed/finalized. Used to detect
+ *  a prior in-flight send so retries never double-charge. */
+async function isSignatureConfirmed(
+  connection: import("@solana/web3.js").Connection,
+  sig: string,
+): Promise<boolean> {
+  try {
+    const st = await connection.getSignatureStatus(sig, {
+      searchTransactionHistory: true,
+    });
+    const s = st?.value?.confirmationStatus;
+    return s === "confirmed" || s === "finalized";
+  } catch {
+    return false;
+  }
+}
 
 async function getBalanceLamports(
   connection: import("@solana/web3.js").Connection,
