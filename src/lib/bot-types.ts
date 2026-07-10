@@ -2,19 +2,14 @@ export type BotMode = "paper" | "live";
 export type BotStatus = "idle" | "running" | "paused" | "error";
 export type Venue = "raydium" | "pumpfun" | "bsc";
 export type DecisionType =
-  | "feed"
-  | "safety"
-  | "strategy"
-  | "execution"
-  | "learning"
-  | "audit"
-  | "wallet"
-  | "error";
+  "feed" | "safety" | "strategy" | "execution" | "learning" | "audit" | "wallet" | "error";
 
 export interface Opportunity {
   id: string;
   ts: number;
   token: string;
+  mint?: string; // real SPL mint address; undefined = synthetic paper-mode token
+  decimals?: number;
   venue: Venue;
   liquiditySol: number;
   safety: number;
@@ -26,6 +21,8 @@ export interface Opportunity {
 export interface Position {
   id: string;
   token: string;
+  mint?: string; // real SPL mint address; undefined = synthetic paper-mode position
+  decimals?: number;
   venue: Venue;
   entry: number;
   current: number;
@@ -34,6 +31,8 @@ export interface Position {
   sl: number;
   openedAt: number;
   agentSized?: boolean;
+  live?: boolean; // true once a real entry swap has been confirmed on-chain
+  entrySignature?: string;
 }
 
 export interface DecisionLogEntry {
@@ -95,6 +94,15 @@ export interface TradeHistoryEntry {
   feeWallet?: string;
 }
 
-export const PLATFORM_FEE_WALLET =
-  "CQf2TBVCtKAjJw1mEGpEYPVn7MUgGJ87wP4esHJhftsF";
+export interface DiscoveryCandidate {
+  mint: string;
+  decimals: number;
+  venue: string; // e.g. "solana/raydium" — mapped to Venue at the call site
+  symbol: string;
+  discovered_at: string;
+  safety_score: number | null;
+  liquidity_usd: number | null;
+}
+
+export const PLATFORM_FEE_WALLET = "CQf2TBVCtKAjJw1mEGpEYPVn7MUgGJ87wP4esHJhftsF";
 export const MIN_USER_DEPOSIT_SOL = 0.1;

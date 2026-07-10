@@ -16,7 +16,9 @@ import { Route as SafetyRouteImport } from './routes/safety'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiRpcRouteImport } from './routes/api/rpc'
+import { Route as ApiDiscoveryRouteImport } from './routes/api/discovery'
 import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
+import { Route as ApiWebhooksHeliusPoolDiscoveryRouteImport } from './routes/api/webhooks/helius-pool-discovery'
 
 const WatchlistRoute = WatchlistRouteImport.update({
   id: '/watchlist',
@@ -53,11 +55,22 @@ const ApiRpcRoute = ApiRpcRouteImport.update({
   path: '/api/rpc',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDiscoveryRoute = ApiDiscoveryRouteImport.update({
+  id: '/api/discovery',
+  path: '/api/discovery',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
   id: '/api/dexscreener',
   path: '/api/dexscreener',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksHeliusPoolDiscoveryRoute =
+  ApiWebhooksHeliusPoolDiscoveryRouteImport.update({
+    id: '/api/webhooks/helius-pool-discovery',
+    path: '/api/webhooks/helius-pool-discovery',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -67,7 +80,9 @@ export interface FileRoutesByFullPath {
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/discovery': typeof ApiDiscoveryRoute
   '/api/rpc': typeof ApiRpcRoute
+  '/api/webhooks/helius-pool-discovery': typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -77,7 +92,9 @@ export interface FileRoutesByTo {
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/discovery': typeof ApiDiscoveryRoute
   '/api/rpc': typeof ApiRpcRoute
+  '/api/webhooks/helius-pool-discovery': typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -88,7 +105,9 @@ export interface FileRoutesById {
   '/trades': typeof TradesRoute
   '/watchlist': typeof WatchlistRoute
   '/api/dexscreener': typeof ApiDexscreenerRoute
+  '/api/discovery': typeof ApiDiscoveryRoute
   '/api/rpc': typeof ApiRpcRoute
+  '/api/webhooks/helius-pool-discovery': typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -100,7 +119,9 @@ export interface FileRouteTypes {
     | '/trades'
     | '/watchlist'
     | '/api/dexscreener'
+    | '/api/discovery'
     | '/api/rpc'
+    | '/api/webhooks/helius-pool-discovery'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -110,7 +131,9 @@ export interface FileRouteTypes {
     | '/trades'
     | '/watchlist'
     | '/api/dexscreener'
+    | '/api/discovery'
     | '/api/rpc'
+    | '/api/webhooks/helius-pool-discovery'
   id:
     | '__root__'
     | '/'
@@ -120,7 +143,9 @@ export interface FileRouteTypes {
     | '/trades'
     | '/watchlist'
     | '/api/dexscreener'
+    | '/api/discovery'
     | '/api/rpc'
+    | '/api/webhooks/helius-pool-discovery'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -131,7 +156,9 @@ export interface RootRouteChildren {
   TradesRoute: typeof TradesRoute
   WatchlistRoute: typeof WatchlistRoute
   ApiDexscreenerRoute: typeof ApiDexscreenerRoute
+  ApiDiscoveryRoute: typeof ApiDiscoveryRoute
   ApiRpcRoute: typeof ApiRpcRoute
+  ApiWebhooksHeliusPoolDiscoveryRoute: typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -185,11 +212,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiRpcRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/discovery': {
+      id: '/api/discovery'
+      path: '/api/discovery'
+      fullPath: '/api/discovery'
+      preLoaderRoute: typeof ApiDiscoveryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/dexscreener': {
       id: '/api/dexscreener'
       path: '/api/dexscreener'
       fullPath: '/api/dexscreener'
       preLoaderRoute: typeof ApiDexscreenerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/helius-pool-discovery': {
+      id: '/api/webhooks/helius-pool-discovery'
+      path: '/api/webhooks/helius-pool-discovery'
+      fullPath: '/api/webhooks/helius-pool-discovery'
+      preLoaderRoute: typeof ApiWebhooksHeliusPoolDiscoveryRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -203,8 +244,20 @@ const rootRouteChildren: RootRouteChildren = {
   TradesRoute: TradesRoute,
   WatchlistRoute: WatchlistRoute,
   ApiDexscreenerRoute: ApiDexscreenerRoute,
+  ApiDiscoveryRoute: ApiDiscoveryRoute,
   ApiRpcRoute: ApiRpcRoute,
+  ApiWebhooksHeliusPoolDiscoveryRoute: ApiWebhooksHeliusPoolDiscoveryRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

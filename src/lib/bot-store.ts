@@ -4,6 +4,7 @@ import type {
   BotMode,
   BotStatus,
   DecisionLogEntry,
+  DiscoveryCandidate,
   EquityPoint,
   Guardrails,
   Opportunity,
@@ -21,8 +22,20 @@ const MAX_EQUITY = 120;
 const MAX_HISTORY = 200;
 
 const TOKENS = [
-  "PEPE2", "BONKX", "SOLDOG", "MOONR", "WIFHAT", "GIGA", "TURBO",
-  "MYRO", "POPCAT", "BOOK", "SNIP", "ALPHA", "OMEGA", "NOVA",
+  "PEPE2",
+  "BONKX",
+  "SOLDOG",
+  "MOONR",
+  "WIFHAT",
+  "GIGA",
+  "TURBO",
+  "MYRO",
+  "POPCAT",
+  "BOOK",
+  "SNIP",
+  "ALPHA",
+  "OMEGA",
+  "NOVA",
 ];
 
 function rand<T>(arr: T[]): T {
@@ -42,6 +55,11 @@ function mockAddress() {
 }
 function shortAddr(a: string) {
   return a.length > 10 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a;
+}
+function venueFromDiscovery(v: string): Venue {
+  if (v === "solana/raydium") return "raydium";
+  if (v === "solana/pump.fun") return "pumpfun";
+  return "raydium"; // unknown venue defaults to the most conservative bucket
 }
 
 interface BotState {
@@ -79,6 +97,10 @@ interface BotState {
   log: DecisionLogEntry[];
   tradeHistory: TradeHistoryEntry[];
 
+  // Real Helius-webhook-sourced candidates for LIVE mode. Empty in paper
+  // mode, which keeps generating synthetic opportunities for practice.
+  discoveryCandidates: DiscoveryCandidate[];
+
   activeVenues: Record<Venue, boolean>;
 
   watchlist: WatchEntry[];
@@ -106,15 +128,18 @@ interface BotState {
 
   start: () => void;
   stop: () => void;
+  resetSession: (newBankroll?: number) => void;
   killSwitch: () => void;
   acknowledgeBreach: () => void;
   closePosition: (id: string) => void;
   toggleVenue: (v: Venue) => void;
   setGuardrails: (g: Partial<Guardrails>) => void;
 
-  addWatch: (input: { symbol: string; venue: Venue; note?: string }) =>
-    | { ok: true }
-    | { ok: false; error: string };
+  addWatch: (input: {
+    symbol: string;
+    venue: Venue;
+    note?: string;
+  }) => { ok: true } | { ok: false; error: string };
   removeWatch: (id: string) => void;
   toggleWatch: (id: string) => void;
   promoteAuto: (id: string) => void;
@@ -129,8 +154,17 @@ interface BotState {
 
   tick: () => void;
   healthCheck: () => void;
-}
 
+  setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => void;
+  // Guardrail/permission check the UI calls BEFORE opening a wallet popup.
+  // Does not touch bankroll or positions — that only happens after a real
+  // swap is confirmed on-chain, via confirmLiveEntry.
+  requestLiveEntry: (
+    opportunityId: string,
+  ) => { ok: true; sizeSol: number } | { ok: false; error: string };
+  confirmLiveEntry: (input: { opportunityId: string; sizeSol: number; signature: string }) => void;
+  failLiveEntry: (input: { opportunityId: string; reason: string }) => void;
+}
 
 const initialBankroll = 0.1;
 
@@ -168,6 +202,7 @@ const initial = {
   guardrailBreached: false,
 
   opportunities: [] as Opportunity[],
+  discoveryCandidates: [] as DiscoveryCandidate[],
   positions: [] as Position[],
   log: [] as DecisionLogEntry[],
   tradeHistory: [] as TradeHistoryEntry[],
@@ -213,7 +248,6 @@ const initial = {
   walletName: null as string | null,
 };
 
-
 export const useBotStore = create<BotState>()(
   persist(
     (set, get) => ({
@@ -231,7 +265,6 @@ export const useBotStore = create<BotState>()(
             summary: `Mode switched to ${mode.toUpperCase()}${s.status === "running" ? " (bot still running)" : ""}`,
           }).slice(0, MAX_LOG),
         })),
-
 
       confirmLive: () =>
         set((s) => ({
@@ -334,7 +367,6 @@ export const useBotStore = create<BotState>()(
           }).slice(0, MAX_LOG),
         })),
 
-
       setUserDeposit: (v) => {
         if (!Number.isFinite(v) || v < MIN_USER_DEPOSIT_SOL) {
           return { ok: false, error: `Minimum deposit is ${MIN_USER_DEPOSIT_SOL} SOL` };
@@ -394,6 +426,31 @@ export const useBotStore = create<BotState>()(
             summary: "Bot stopped",
           }).slice(0, MAX_LOG),
         })),
+      // Explicit, separate from stop(): stop() must NEVER silently clear a
+      // guardrail breach or wipe P&L history. Starting a fresh session is a
+      // deliberate user action with its own audit log line.
+      resetSession: (newBankroll?: number) =>
+        set((s) => {
+          const v = newBankroll ?? s.userDeposit;
+          return {
+            status: "idle",
+            bankroll: v,
+            startBankroll: v,
+            peakBankroll: v,
+            positions: [],
+            equity: [{ ts: Date.now(), value: v }] as EquityPoint[],
+            sessionPnl: 0,
+            tradesToday: 0,
+            skipsToday: 0,
+            guardrailBreached: false,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "audit",
+              summary: `Session reset · new bankroll ${v.toFixed(3)} SOL`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
       killSwitch: () =>
         set((s) => {
           const flatHistory: TradeHistoryEntry[] = s.positions.map((p) => ({
@@ -497,9 +554,7 @@ export const useBotStore = create<BotState>()(
       setGuardrails: (g) =>
         set((s) => {
           const keys = Object.keys(g) as (keyof Guardrails)[];
-          const summary = keys
-            .map((k) => `${k}=${String(g[k])}`)
-            .join(", ");
+          const summary = keys.map((k) => `${k}=${String(g[k])}`).join(", ");
           return {
             guardrails: { ...s.guardrails, ...g },
             log: prepend(s.log, {
@@ -617,9 +672,7 @@ export const useBotStore = create<BotState>()(
         set((s) => {
           const w = s.watchlist.find((x) => x.id === wid);
           return {
-            watchlist: s.watchlist.map((x) =>
-              x.id === wid ? { ...x, enabled: !x.enabled } : x,
-            ),
+            watchlist: s.watchlist.map((x) => (x.id === wid ? { ...x, enabled: !x.enabled } : x)),
             log: w
               ? prepend(s.log, {
                   id: id(),
@@ -634,9 +687,7 @@ export const useBotStore = create<BotState>()(
         set((s) => {
           const w = s.watchlist.find((x) => x.id === wid);
           return {
-            watchlist: s.watchlist.map((x) =>
-              x.id === wid ? { ...x, source: "manual" } : x,
-            ),
+            watchlist: s.watchlist.map((x) => (x.id === wid ? { ...x, source: "manual" } : x)),
             log: w
               ? prepend(s.log, {
                   id: id(),
@@ -708,18 +759,97 @@ export const useBotStore = create<BotState>()(
         set({ lastHealthAt: Date.now() });
       },
 
+      setDiscoveryCandidates: (rows) => set({ discoveryCandidates: rows }),
+
+      requestLiveEntry: (opportunityId) => {
+        const s = get();
+        const opp = s.opportunities.find((o) => o.id === opportunityId);
+        if (!opp) return { ok: false, error: "Opportunity not found" };
+        if (s.mode !== "live") return { ok: false, error: "Not in live mode" };
+        if (s.guardrailBreached)
+          return { ok: false, error: "Guardrail breach active — resolve before trading" };
+        if (!s.walletConnected) return { ok: false, error: "Wallet not connected" };
+        if (!opp.mint) return { ok: false, error: "No mint address on this opportunity" };
+        if (opp.safety == null || opp.safety < s.safetyFilters.minSafety) {
+          return { ok: false, error: "Safety score missing or below threshold" };
+        }
+        if (s.guardrails.duplicateGuard && s.positions.some((p) => p.mint === opp.mint)) {
+          return { ok: false, error: "Already holding a position in this mint" };
+        }
+        const bankrollForSize = Math.max(0, s.bankroll);
+        if (bankrollForSize < 0.001) return { ok: false, error: "Bankroll too low" };
+        const sizeSol = s.guardrails.adaptiveSizing
+          ? Math.min(bankrollForSize * 0.2, bankrollForSize * 0.5)
+          : Math.min(s.guardrails.maxPositionSol, bankrollForSize * 0.5);
+        if (sizeSol <= 0) return { ok: false, error: "Computed size is zero" };
+        return { ok: true, sizeSol };
+      },
+
+      // Called only after a real swap has been signed, sent, AND confirmed
+      // on-chain (see useLiveExecution). Bankroll only ever moves here for
+      // live trades — tick() never touches it in live mode.
+      confirmLiveEntry: ({ opportunityId, sizeSol, signature }) =>
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          if (!opp || !opp.mint) return {};
+          const position: Position = {
+            id: id(),
+            token: opp.token,
+            mint: opp.mint,
+            decimals: opp.decimals,
+            venue: opp.venue,
+            entry: 1,
+            current: 1,
+            sizeSol,
+            tp: 1.35,
+            sl: 0.85,
+            openedAt: Date.now(),
+            live: true,
+            entrySignature: signature,
+          };
+          const bankroll = Math.max(0, s.bankroll - sizeSol);
+          return {
+            bankroll,
+            positions: [...s.positions, position],
+            tradesToday: s.tradesToday + 1,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "execution",
+              summary: `LIVE fill · ${opp.token} · ${sizeSol.toFixed(5)} SOL · sig ${shortAddr(signature)}`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
+      failLiveEntry: ({ opportunityId, reason }) =>
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          return {
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "error",
+              summary: `LIVE entry failed · ${opp?.token ?? opportunityId} · ${reason}`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
       tick: () => {
         try {
           const s = get();
           if (s.status !== "running") return;
 
-          const active = (Object.keys(s.activeVenues) as Venue[]).filter(
-            (v) => s.activeVenues[v],
-          );
+          const active = (Object.keys(s.activeVenues) as Venue[]).filter((v) => s.activeVenues[v]);
           if (active.length === 0) return;
 
           let bankroll = s.bankroll;
+          // Live positions are real, on-chain fills — they must NEVER get
+          // synthetic price drift or a fake auto-close. Until real price
+          // polling + real sell-swap exits are wired (tracked separately),
+          // live positions just pass through untouched each tick; closing
+          // them is a manual action that will route through a real swap.
           const positions = s.positions.map((p) => {
+            if (p.live) return p;
             const drift = (Math.random() - 0.48) * 0.05;
             return { ...p, current: Math.max(0.0000001, p.current * (1 + drift)) };
           });
@@ -730,11 +860,14 @@ export const useBotStore = create<BotState>()(
           let feesAccrued = 0;
 
           for (const p of positions) {
+            if (p.live) {
+              keptPositions.push(p);
+              continue;
+            }
             const rr = p.current / p.entry;
             if (rr >= p.tp || rr <= p.sl) {
               const pnl = (p.current - p.entry) * (p.sizeSol / p.entry);
-              const fee =
-                s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
+              const fee = s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
               const net = pnl - fee;
               bankroll += p.sizeSol + net;
               feesAccrued += fee;
@@ -783,7 +916,7 @@ export const useBotStore = create<BotState>()(
           let watchlist = s.watchlist;
           const sf = s.safetyFilters;
 
-          if (Math.random() < 0.75) {
+          if (s.mode === "paper" && Math.random() < 0.75) {
             const token = rand(TOKENS) + Math.floor(Math.random() * 99);
             const venue = rand(active);
             const symbol = `${token}/SOL`;
@@ -791,22 +924,17 @@ export const useBotStore = create<BotState>()(
             const safety = Math.floor(30 + Math.random() * 70);
             const confidence = Math.floor(20 + Math.random() * 80);
 
-            const failsSafety =
-              safety < sf.minSafety || liquidity < sf.minLiquiditySol;
+            const failsSafety = safety < sf.minSafety || liquidity < sf.minLiquiditySol;
             const inWatchlist = watchlist.some(
               (w) => w.symbol === symbol && w.venue === venue && w.enabled,
             );
-            const liveGated = s.mode === "live" && !inWatchlist;
 
             const shouldEnter =
               !failsSafety &&
-              !liveGated &&
               confidence >= 55 &&
               keptPositions.length < 5 &&
               bankroll >= 0.001 &&
-              !keptPositions.some(
-                (p) => p.token === token && s.guardrails.duplicateGuard,
-              );
+              !keptPositions.some((p) => p.token === token && s.guardrails.duplicateGuard);
 
             const reason = shouldEnter
               ? undefined
@@ -814,11 +942,9 @@ export const useBotStore = create<BotState>()(
                 ? safety < sf.minSafety
                   ? `safety<${sf.minSafety}`
                   : `liquidity<${sf.minLiquiditySol}`
-                : liveGated
-                  ? "not in watchlist"
-                  : confidence < 55
-                    ? "low confidence"
-                    : "risk cap";
+                : confidence < 55
+                  ? "low confidence"
+                  : "risk cap";
 
             const opp: Opportunity = {
               id: id(),
@@ -856,9 +982,7 @@ export const useBotStore = create<BotState>()(
             });
 
             if (s.autoCurate && !failsSafety) {
-              const existing = watchlist.find(
-                (w) => w.symbol === symbol && w.venue === venue,
-              );
+              const existing = watchlist.find((w) => w.symbol === symbol && w.venue === venue);
               if (existing) {
                 const nextStreak = shouldEnter ? existing.positiveStreak + 1 : 0;
                 watchlist = watchlist.map((w) =>
@@ -900,7 +1024,9 @@ export const useBotStore = create<BotState>()(
 
             if (shouldEnter) {
               // Adaptive sizing: agent chooses size based on confidence & safety,
-              // otherwise clamp to maxPositionSol.
+              // otherwise clamp to maxPositionSol. PAPER MODE ONLY — bankroll
+              // is fake here. Live mode never reaches this branch; real fills
+              // only ever happen via confirmLiveEntry after an on-chain confirm.
               const bankrollForSize = Math.max(0, bankroll);
               let size: number;
               let agentSized = false;
@@ -942,11 +1068,54 @@ export const useBotStore = create<BotState>()(
                 });
               }
             }
+          } else if (s.mode === "live") {
+            // Real candidates only, sourced from the Helius webhook via
+            // setDiscoveryCandidates(). No synthetic tokens, no auto-fill —
+            // this branch only ever surfaces opportunities for the UI to
+            // present; actual entry requires requestLiveEntry() + a real
+            // wallet-signed swap via useLiveExecution, then confirmLiveEntry().
+            const known = new Set(opportunities.map((o) => o.mint).filter(Boolean));
+            const candidate = s.discoveryCandidates.find((c) => !known.has(c.mint));
+            if (candidate) {
+              const venue = venueFromDiscovery(candidate.venue);
+              const liquidity = (candidate.liquidity_usd ?? 0) / 150; // rough USD->SOL, real price feed TODO
+              // safety_score is NULL until the safety pipeline (ported
+              // separately from SolanaSafetyProvider) actually checks this
+              // mint. NULL must never be treated as safe.
+              const failsSafety =
+                candidate.safety_score == null || candidate.safety_score < sf.minSafety;
+              const reason = failsSafety
+                ? candidate.safety_score == null
+                  ? "awaiting safety check"
+                  : `safety<${sf.minSafety}`
+                : undefined;
+
+              const opp: Opportunity = {
+                id: id(),
+                ts: Date.now(),
+                token: candidate.symbol,
+                mint: candidate.mint,
+                decimals: candidate.decimals,
+                venue,
+                liquiditySol: liquidity,
+                safety: candidate.safety_score ?? -1,
+                confidence: 0, // no live confidence engine ported yet
+                decision: failsSafety ? "skip" : "skip", // never auto-enter in live mode; see requestLiveEntry
+                reason: reason ?? "manual review required",
+              };
+              opportunities.unshift(opp);
+              if (opportunities.length > MAX_FEED) opportunities.length = MAX_FEED;
+              newLogs.push({
+                id: id(),
+                ts: Date.now(),
+                type: "feed",
+                summary: `${opp.token} discovered on ${venue} (real, mint ${candidate.mint.slice(0, 4)}..${candidate.mint.slice(-4)})`,
+              });
+            }
           }
 
           const unrealized = keptPositions.reduce(
-            (acc, p) =>
-              acc + (p.current - p.entry) * (p.sizeSol / p.entry) + p.sizeSol,
+            (acc, p) => acc + (p.current - p.entry) * (p.sizeSol / p.entry) + p.sizeSol,
             0,
           );
           const equityNow = bankroll + unrealized;
@@ -955,15 +1124,12 @@ export const useBotStore = create<BotState>()(
 
           const peak = Math.max(s.peakBankroll, equityNow);
           const drawdownPct = ((peak - equityNow) / peak) * 100;
-          const dailyLossPct =
-            ((s.startBankroll - equityNow) / s.startBankroll) * 100;
+          const dailyLossPct = ((s.startBankroll - equityNow) / s.startBankroll) * 100;
           const breached =
             drawdownPct > s.guardrails.drawdownLimitPct ||
             dailyLossPct > s.guardrails.dailyLossLimitPct;
 
-          const enters = newLogs.filter((l) =>
-            l.summary.startsWith("Enter "),
-          ).length;
+          const enters = newLogs.filter((l) => l.summary.startsWith("Enter ")).length;
           const skips = newLogs.filter(
             (l) => l.type === "strategy" && l.summary.endsWith("skip"),
           ).length;
@@ -1011,7 +1177,6 @@ export const useBotStore = create<BotState>()(
             }).slice(0, MAX_LOG),
           });
         }
-
       },
     }),
     {
