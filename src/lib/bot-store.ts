@@ -1241,6 +1241,7 @@ export const useBotStore = create<BotState>()(
               positiveStreak: Number(w.positive_streak ?? 0),
               addedAt: new Date(String(w.added_at ?? Date.now())).getTime(),
               note: (w.note as string | undefined) ?? undefined,
+              mintAddress: (w.mint_address as string | null | undefined) ?? null,
             }));
           }
           return patch;
