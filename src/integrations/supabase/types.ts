@@ -94,6 +94,7 @@ export type Database = {
       }
       trade_history: {
         Row: {
+          client_id: string | null
           created_at: string
           entry: number
           exit: number
@@ -105,6 +106,7 @@ export type Database = {
           net_to_user_sol: number
           pnl_sol: number
           reason: string
+          settlement_status: string
           size_sol: number
           swap_tx_sig: string | null
           token: string
@@ -113,6 +115,7 @@ export type Database = {
           venue: string
         }
         Insert: {
+          client_id?: string | null
           created_at?: string
           entry: number
           exit: number
@@ -124,6 +127,7 @@ export type Database = {
           net_to_user_sol?: number
           pnl_sol: number
           reason: string
+          settlement_status?: string
           size_sol: number
           swap_tx_sig?: string | null
           token: string
@@ -132,6 +136,7 @@ export type Database = {
           venue: string
         }
         Update: {
+          client_id?: string | null
           created_at?: string
           entry?: number
           exit?: number
@@ -143,6 +148,7 @@ export type Database = {
           net_to_user_sol?: number
           pnl_sol?: number
           reason?: string
+          settlement_status?: string
           size_sol?: number
           swap_tx_sig?: string | null
           token?: string
