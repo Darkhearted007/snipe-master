@@ -485,6 +485,7 @@ export const useBotStore = create<BotState>()(
             feePaidSol: fee,
             netToUserSol: net,
             feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
+            settlementStatus: fee > 0 ? "pending" : "n/a",
           };
           return {
             positions: s.positions.filter((x) => x.id !== pid),
@@ -500,6 +501,16 @@ export const useBotStore = create<BotState>()(
                 ts: Date.now(),
                 type: "execution",
                 summary: `Manual close ${p.token} · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+              },
+              {
+                id: id(),
+                ts: Date.now(),
+                type: "audit" as const,
+                summary:
+                  `Audit#${entry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · ` +
+                  `pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · ` +
+                  `fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · ` +
+                  `net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
               },
               ...(fee > 0
                 ? [
