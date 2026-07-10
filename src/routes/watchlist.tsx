@@ -29,10 +29,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { CheckCircle2, Filter, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Filter, Loader2, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
 import { useBotStore } from "@/lib/bot-store";
 import type { Venue, WatchSource } from "@/lib/bot-types";
 import { cn } from "@/lib/utils";
+import { isSafetyVerdict, useTokenSafety } from "@/hooks/use-token-safety";
 
 export const Route = createFileRoute("/watchlist")({
   head: () => ({ meta: [{ title: "Watchlist — SniperBot" }] }),
@@ -58,6 +59,7 @@ function WatchlistPage() {
   const [symbol, setSymbol] = useState("");
   const [venue, setVenue] = useState<Venue>("raydium");
   const [note, setNote] = useState("");
+  const [mintAddress, setMintAddress] = useState("");
   const [tab, setTab] = useState<WatchSource | "all">("all");
 
   const filtered = useMemo(
@@ -70,7 +72,19 @@ function WatchlistPage() {
   const enabledCount = watchlist.filter((w) => w.enabled).length;
 
   const handleAdd = () => {
-    const res = addWatch({ symbol, venue, note: note || undefined });
+    const mint = mintAddress.trim();
+    if (mint && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
+      toast.error("Invalid mint address", {
+        description: "Must be a base58 Solana mint (32–44 chars).",
+      });
+      return;
+    }
+    const res = addWatch({
+      symbol,
+      venue,
+      note: note || undefined,
+      mintAddress: mint || null,
+    });
     if (!res.ok) {
       toast.error("Rejected by safety filter", { description: res.error });
       return;
@@ -80,6 +94,7 @@ function WatchlistPage() {
     });
     setSymbol("");
     setNote("");
+    setMintAddress("");
   };
 
   return (
@@ -214,10 +229,18 @@ function WatchlistPage() {
               </SelectContent>
             </Select>
             <Input
+              placeholder="Mint address (optional, Solana base58)"
+              value={mintAddress}
+              onChange={(e) => setMintAddress(e.target.value)}
+              className="w-72 font-mono"
+              maxLength={44}
+            />
+            <Input
               placeholder="Note (optional)"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="flex-1 min-w-40"
+              maxLength={200}
             />
             <Button onClick={handleAdd}>Add</Button>
           </div>
@@ -225,6 +248,7 @@ function WatchlistPage() {
             Manual entries bypass auto-curation but still pass the safety filter
             above.
           </p>
+          <MintSafetyPreview mint={mintAddress} />
         </CardContent>
       </Card>
 
@@ -466,3 +490,132 @@ function scoreTone(n: number) {
 
 // Suppress unused-import warning for X (kept for future close controls)
 void X;
+
+function MintSafetyPreview({ mint }: { mint: string }) {
+  const trimmed = mint.trim();
+  const valid = trimmed.length >= 32 && trimmed.length <= 44;
+  const { data, isFetching, error } = useTokenSafety(valid ? trimmed : null);
+
+  if (!trimmed) return null;
+  if (!valid) {
+    return (
+      <div className="mt-3 rounded border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        Enter a full Solana mint (32–44 chars) to see a live rugcheck verdict.
+      </div>
+    );
+  }
+  if (isFetching && !data) {
+    return (
+      <div className="mt-3 flex items-center gap-2 rounded border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Fetching rugcheck report…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="mt-3 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+        Rugcheck lookup failed. You can still add the token; safety will retry later.
+      </div>
+    );
+  }
+  if (!isSafetyVerdict(data)) {
+    return (
+      <div className="mt-3 rounded border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        Rugcheck has no report for this mint yet.
+      </div>
+    );
+  }
+
+  const v = data;
+  const verdictTone =
+    v.verdict === "safe"
+      ? "border-success/40 bg-success/10 text-success"
+      : v.verdict === "caution"
+        ? "border-warning/40 bg-warning/10 text-warning"
+        : v.verdict === "danger"
+          ? "border-danger/40 bg-danger/10 text-danger"
+          : "border-border/60 bg-muted/20 text-muted-foreground";
+
+  const topRisks = v.risks
+    .slice()
+    .sort((a, b) => rankLevel(b.level) - rankLevel(a.level))
+    .slice(0, 3);
+
+  return (
+    <div className={cn("mt-3 space-y-2 rounded border px-3 py-2 text-xs", verdictTone)}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 font-medium">
+          {v.verdict === "safe" ? (
+            <ShieldCheck className="h-4 w-4" />
+          ) : (
+            <AlertTriangle className="h-4 w-4" />
+          )}
+          <span className="uppercase tracking-wide">Rugcheck: {v.verdict}</span>
+          {v.symbol && <span className="text-muted-foreground">· {v.symbol}</span>}
+        </div>
+        <div className="font-mono">
+          Score {v.score ?? "—"}/100
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px] text-foreground/80 sm:grid-cols-4">
+        <AuthBadge label="Mint auth" revoked={v.flags.mintAuthorityRevoked} />
+        <AuthBadge label="Freeze auth" revoked={v.flags.freezeAuthorityRevoked} />
+        <div>
+          LP locked:{" "}
+          <span className={v.flags.lpLocked ? "text-success" : "text-danger"}>
+            {v.flags.lpLocked == null
+              ? "—"
+              : v.flags.lpLocked
+                ? `${Math.round(v.flags.lpLockedPct ?? 0)}%`
+                : "no"}
+          </span>
+        </div>
+        <div>
+          Top holder:{" "}
+          <span className="text-foreground">
+            {v.flags.topHolderPct != null ? `${v.flags.topHolderPct.toFixed(1)}%` : "—"}
+          </span>
+        </div>
+      </div>
+
+      {topRisks.length > 0 && (
+        <ul className="space-y-0.5 text-[11px] text-foreground/80">
+          {topRisks.map((r, i) => (
+            <li key={`${r.name}-${i}`} className="flex gap-1.5">
+              <span
+                className={cn(
+                  "font-mono uppercase",
+                  r.level === "danger" || r.level === "high"
+                    ? "text-danger"
+                    : r.level === "warn" || r.level === "medium"
+                      ? "text-warning"
+                      : "text-muted-foreground",
+                )}
+              >
+                [{r.level}]
+              </span>
+              <span className="truncate">{r.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AuthBadge({ label, revoked }: { label: string; revoked: boolean }) {
+  return (
+    <div>
+      {label}:{" "}
+      <span className={revoked ? "text-success" : "text-danger"}>
+        {revoked ? "revoked" : "active"}
+      </span>
+    </div>
+  );
+}
+
+function rankLevel(l: string) {
+  return l === "danger" || l === "high" ? 3 : l === "warn" || l === "medium" ? 2 : 1;
+}
+

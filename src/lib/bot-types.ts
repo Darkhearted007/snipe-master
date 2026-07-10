@@ -8,11 +8,10 @@ export interface Opportunity {
   id: string;
   ts: number;
   token: string;
-  mint?: string; // real SPL mint address; undefined = synthetic paper-mode token
-  decimals?: number;
+  mint?: string; // real SPL mint address for live-discovered tokens; absent for paper-mode synthetic tokens
   venue: Venue;
   liquiditySol: number;
-  safety: number;
+  safety: number; // -1 = not yet checked; never treat as a passing score
   confidence: number;
   decision: "enter" | "skip";
   reason?: string;
@@ -21,8 +20,7 @@ export interface Opportunity {
 export interface Position {
   id: string;
   token: string;
-  mint?: string; // real SPL mint address; undefined = synthetic paper-mode position
-  decimals?: number;
+  mint?: string;
   venue: Venue;
   entry: number;
   current: number;
@@ -68,6 +66,8 @@ export interface WatchEntry {
   positiveStreak: number;
   addedAt: number;
   note?: string;
+  /** Optional Solana SPL mint address — enables per-row rugcheck.xyz lookups. */
+  mintAddress?: string | null;
 }
 
 export interface SafetyFilters {
@@ -77,6 +77,8 @@ export interface SafetyFilters {
   blockHoneypots: boolean;
   maxHolderConcentrationPct: number;
 }
+
+export type SettlementStatus = "n/a" | "pending" | "settled" | "failed";
 
 export interface TradeHistoryEntry {
   id: string;
@@ -92,16 +94,11 @@ export interface TradeHistoryEntry {
   feePaidSol: number; // platform fee routed on profit
   netToUserSol: number; // pnl after fee (only live)
   feeWallet?: string;
-}
-
-export interface DiscoveryCandidate {
-  mint: string;
-  decimals: number;
-  venue: string; // e.g. "solana/raydium" — mapped to Venue at the call site
-  symbol: string;
-  discovered_at: string;
-  safety_score: number | null;
-  liquidity_usd: number | null;
+  // Profit audit trail — populated as on-chain settlement progresses.
+  settlementStatus: SettlementStatus;
+  feeTxSig?: string;
+  settlementError?: string;
+  settledAt?: number;
 }
 
 export const PLATFORM_FEE_WALLET = "CQf2TBVCtKAjJw1mEGpEYPVn7MUgGJ87wP4esHJhftsF";

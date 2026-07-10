@@ -8,58 +8,263 @@ export type Database = {
   };
   public: {
     Tables: {
-      discovery_candidates: {
+      auth_nonces: {
         Row: {
-          mint: string;
-          decimals: number;
-          venue: string;
-          symbol: string;
-          discovery_signature: string;
-          discovered_at: string;
-          safety_score: number | null;
-          liquidity_usd: number | null;
-          raw_payload: Json | null;
-          lp_mint: string | null;
-        };
+          consumed: boolean
+          created_at: string
+          expires_at: string
+          nonce: string
+          wallet_address: string
+        }
         Insert: {
-          mint: string;
-          decimals: number;
-          venue: string;
-          symbol: string;
-          discovery_signature: string;
-          discovered_at?: string;
-          safety_score?: number | null;
-          liquidity_usd?: number | null;
-          raw_payload?: Json | null;
-          lp_mint?: string | null;
-        };
+          consumed?: boolean
+          created_at?: string
+          expires_at?: string
+          nonce: string
+          wallet_address: string
+        }
         Update: {
-          mint?: string;
-          decimals?: number;
-          venue?: string;
-          symbol?: string;
-          discovery_signature?: string;
-          discovered_at?: string;
-          safety_score?: number | null;
-          liquidity_usd?: number | null;
-          raw_payload?: Json | null;
-          lp_mint?: string | null;
-        };
-        Relationships: [];
-      };
-    };
+          consumed?: boolean
+          created_at?: string
+          expires_at?: string
+          nonce?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      decision_logs: {
+        Row: {
+          created_at: string
+          id: string
+          summary: string
+          ts: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          summary: string
+          ts?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          summary?: string
+          ts?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          wallet_address: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id: string
+          updated_at?: string
+          wallet_address: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      trade_history: {
+        Row: {
+          client_id: string | null
+          created_at: string
+          entry: number
+          exit: number
+          fee_paid_sol: number
+          fee_tx_sig: string | null
+          fee_wallet: string | null
+          id: string
+          mode: string
+          net_to_user_sol: number
+          pnl_sol: number
+          reason: string
+          settlement_status: string
+          size_sol: number
+          swap_tx_sig: string | null
+          token: string
+          ts: string
+          user_id: string
+          venue: string
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string
+          entry: number
+          exit: number
+          fee_paid_sol?: number
+          fee_tx_sig?: string | null
+          fee_wallet?: string | null
+          id?: string
+          mode: string
+          net_to_user_sol?: number
+          pnl_sol: number
+          reason: string
+          settlement_status?: string
+          size_sol: number
+          swap_tx_sig?: string | null
+          token: string
+          ts?: string
+          user_id: string
+          venue: string
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string
+          entry?: number
+          exit?: number
+          fee_paid_sol?: number
+          fee_tx_sig?: string | null
+          fee_wallet?: string | null
+          id?: string
+          mode?: string
+          net_to_user_sol?: number
+          pnl_sol?: number
+          reason?: string
+          settlement_status?: string
+          size_sol?: number
+          swap_tx_sig?: string | null
+          token?: string
+          ts?: string
+          user_id?: string
+          venue?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          granted_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          created_at: string
+          settings: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          settings?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          settings?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      watchlist_entries: {
+        Row: {
+          added_at: string
+          created_at: string
+          enabled: boolean
+          id: string
+          liquidity_sol: number
+          mint_address: string | null
+          note: string | null
+          positive_streak: number
+          safety: number
+          source: string
+          symbol: string
+          updated_at: string
+          user_id: string
+          venue: string
+        }
+        Insert: {
+          added_at?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          liquidity_sol?: number
+          mint_address?: string | null
+          note?: string | null
+          positive_streak?: number
+          safety?: number
+          source: string
+          symbol: string
+          updated_at?: string
+          user_id: string
+          venue: string
+        }
+        Update: {
+          added_at?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          liquidity_sol?: number
+          mint_address?: string | null
+          note?: string | null
+          positive_streak?: number
+          safety?: number
+          source?: string
+          symbol?: string
+          updated_at?: string
+          user_id?: string
+          venue?: string
+        }
+        Relationships: []
+      }
+    }
     Views: {
       [_ in never]: never;
     };
     Functions: {
-      prune_stale_discovery_candidates: {
-        Args: Record<PropertyKey, never>;
-        Returns: undefined;
-      };
-    };
+      get_user_roles: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"][]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+    }
     Enums: {
-      [_ in never]: never;
-    };
+      app_role: "viewer" | "trader" | "admin"
+    }
     CompositeTypes: {
       [_ in never]: never;
     };
@@ -179,6 +384,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["viewer", "trader", "admin"],
+    },
   },
 } as const;

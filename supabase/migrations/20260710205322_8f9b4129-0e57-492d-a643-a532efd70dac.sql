@@ -1,0 +1,2 @@
+ALTER TABLE public.watchlist_entries ADD COLUMN IF NOT EXISTS mint_address text;
+CREATE INDEX IF NOT EXISTS watchlist_entries_mint_idx ON public.watchlist_entries(user_id, mint_address) WHERE mint_address IS NOT NULL;

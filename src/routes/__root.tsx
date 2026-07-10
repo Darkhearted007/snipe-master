@@ -12,6 +12,8 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
+  useNavigate,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -26,6 +28,14 @@ import { StatusStrip } from "@/components/status-strip";
 import { Toaster } from "@/components/ui/sonner";
 import { useBotSimulator } from "@/hooks/use-bot-simulator";
 import { SolanaProviders } from "@/lib/solana-provider";
+import { useAuthSession } from "@/hooks/use-auth-session";
+import { useServerPersistence } from "@/hooks/use-server-persistence";
+import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
+import { useLiveExecutor } from "@/hooks/use-live-executor";
+import { useBotStore } from "@/lib/bot-store";
+import { useWalletReady } from "@/lib/solana-provider";
+import { GlobalErrorBoundary } from "@/components/global-error-boundary";
+
 
 
 function NotFoundComponent() {
@@ -135,21 +145,41 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useEffect(() => {
+    // Rehydrate persisted bot state after mount (persist has skipHydration).
+    void useBotStore.persist.rehydrate();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SolanaProviders>
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
-      </SolanaProviders>
+      <GlobalErrorBoundary>
+        <SolanaProviders>
+          <AppShell />
+        </SolanaProviders>
+      </GlobalErrorBoundary>
       <Toaster theme="dark" />
     </QueryClientProvider>
   );
 }
 
+function AppShell() {
+  const path = useRouterState({ select: (r) => r.location.pathname });
+  if (path === "/auth") return <Outlet />;
+  return (
+    <AuthGate>
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </AuthGate>
+  );
+}
+
 function AppLayout({ children }: { children: ReactNode }) {
   useBotSimulator();
+  useServerPersistence(true);
+  const mode = useBotStore((s) => s.mode);
+  useDexScreenerStream(mode === "live");
+  const walletReady = useWalletReady();
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background">
@@ -158,9 +188,32 @@ function AppLayout({ children }: { children: ReactNode }) {
           <ControlHeader />
           <StatusStrip />
           <main className="flex-1 p-4">{children}</main>
+          {walletReady && <LiveExecutorMount />}
         </div>
       </div>
     </SidebarProvider>
   );
+}
+
+function LiveExecutorMount() {
+  useLiveExecutor();
+  return null;
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const session = useAuthSession();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (session === null) navigate({ to: "/auth" });
+  }, [session, navigate]);
+  if (session === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-xs text-muted-foreground">Loading session…</div>
+      </div>
+    );
+  }
+  if (session === null) return null;
+  return <>{children}</>;
 }
 

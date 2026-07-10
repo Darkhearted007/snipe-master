@@ -6,6 +6,7 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import path from "node:path";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 export default defineConfig({
   tanstackStart: {
@@ -14,6 +15,17 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    plugins: [
+      {
+        ...nodePolyfills({
+          include: ["buffer", "process"],
+          globals: { Buffer: true, global: true, process: true },
+          protocolImports: false,
+        }),
+        applyToEnvironment: (env) => env.name === "client",
+      },
+
+    ],
     resolve: {
       alias: [
         {

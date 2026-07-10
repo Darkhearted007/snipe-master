@@ -7,8 +7,37 @@
 // "not-applicable" rather than penalizing a token for a check that
 // structurally doesn't apply to it yet.
 
-import { getQuote, SOL_MINT, JupiterError } from "./jupiter";
 import { rpcRequest } from "./solana-rpc-server";
+
+export const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+/**
+ * Minimal, self-contained Jupiter quote call for the honeypot probe only.
+ * Deliberately does not import from either execution path's Jupiter client
+ * (this repo has jupiter-client.ts wired to live trade execution) — a safety
+ * check must never share code with, or create a hidden dependency on, the
+ * thing it's supposed to be checking.
+ */
+async function getSafetyProbeQuote(params: {
+  inputMint: string;
+  outputMint: string;
+  amountLamports: number;
+  slippageBps: number;
+}): Promise<{ outAmount: string; priceImpactPct: string }> {
+  const url = new URL("https://lite-api.jup.ag/swap/v1/quote");
+  url.searchParams.set("inputMint", params.inputMint);
+  url.searchParams.set("outputMint", params.outputMint);
+  url.searchParams.set("amount", String(Math.floor(params.amountLamports)));
+  url.searchParams.set("slippageBps", String(params.slippageBps));
+  url.searchParams.set("restrictIntermediateTokens", "true");
+  const res = await fetch(url.toString(), { headers: { accept: "application/json" } });
+  if (!res.ok) {
+    throw new Error(`quote HTTP ${res.status}`);
+  }
+  const raw = (await res.json()) as { outAmount?: string; priceImpactPct?: string };
+  if (!raw.outAmount) throw new Error("no route found");
+  return { outAmount: raw.outAmount, priceImpactPct: raw.priceImpactPct ?? "0" };
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -163,13 +192,13 @@ async function checkHoneypot(
 ): Promise<{ result: SafetyResult["honeypot"]; liquidityProbeOutAmount: string | null }> {
   const PROBE_LAMPORTS = 10_000_000; // 0.01 SOL — small enough not to move price
   try {
-    const forward = await getQuote({
+    const forward = await getSafetyProbeQuote({
       inputMint: SOL_MINT,
       outputMint: mint,
       amountLamports: PROBE_LAMPORTS,
       slippageBps: 300,
     });
-    const reverse = await getQuote({
+    const reverse = await getSafetyProbeQuote({
       inputMint: mint,
       outputMint: SOL_MINT,
       amountLamports: Number(forward.outAmount),
@@ -187,12 +216,7 @@ async function checkHoneypot(
       liquidityProbeOutAmount: forward.outAmount,
     };
   } catch (error) {
-    const reason =
-      error instanceof JupiterError
-        ? `${error.stage}: ${error.message}`
-        : error instanceof Error
-          ? error.message
-          : String(error);
+    const reason = error instanceof Error ? error.message : String(error);
     return { result: { sellable: false, reason }, liquidityProbeOutAmount: null };
   }
 }

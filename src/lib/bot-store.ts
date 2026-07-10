@@ -13,6 +13,7 @@ import type {
   TradeHistoryEntry,
   Venue,
   WatchEntry,
+  WatchSource,
 } from "./bot-types";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "./bot-types";
 
@@ -73,6 +74,7 @@ interface BotState {
   walletAddress: string | null;
   walletConnecting: boolean;
   walletError: string | null;
+  walletBalanceSol: number | null;
 
   // Funds
   userDeposit: number;
@@ -123,6 +125,7 @@ interface BotState {
     address: string | null;
     walletName: string | null;
   }) => void;
+  setWalletBalance: (sol: number | null) => void;
   setUserDeposit: (v: number) => { ok: boolean; error?: string };
   setPlatformFeePct: (v: number) => void;
 
@@ -139,6 +142,7 @@ interface BotState {
     symbol: string;
     venue: Venue;
     note?: string;
+    mintAddress?: string | null;
   }) => { ok: true } | { ok: false; error: string };
   removeWatch: (id: string) => void;
   toggleWatch: (id: string) => void;
@@ -152,18 +156,47 @@ interface BotState {
 
   logAudit: (summary: string, type?: DecisionLogEntry["type"]) => void;
 
+  /** Update the on-chain settlement state for a recorded trade. */
+  setTradeSettlement: (
+    tradeId: string,
+    patch: { status: TradeHistoryEntry["settlementStatus"]; feeTxSig?: string; error?: string },
+  ) => void;
+
+  /**
+   * Rollback the accounting for a fee that could not be settled on-chain
+   * after all retries. Credits the reserved fee back to net-to-user so the
+   * bankroll reflects what the wallet actually holds. Idempotent.
+   */
+  rollbackTradeFee: (tradeId: string, reason: string) => void;
+
   tick: () => void;
   healthCheck: () => void;
 
-  setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => void;
-  // Guardrail/permission check the UI calls BEFORE opening a wallet popup.
-  // Does not touch bankroll or positions — that only happens after a real
-  // swap is confirmed on-chain, via confirmLiveEntry.
-  requestLiveEntry: (
-    opportunityId: string,
-  ) => { ok: true; sizeSol: number } | { ok: false; error: string };
-  confirmLiveEntry: (input: { opportunityId: string; sizeSol: number; signature: string }) => void;
-  failLiveEntry: (input: { opportunityId: string; reason: string }) => void;
+  /** Push a real (non-simulated) opportunity from an external stream (DexScreener).
+   *  Returns the new opportunity's id (for chaining a safety check), or null
+   *  if it was filtered out before ever being added. */
+  pushRealOpportunity: (input: {
+    token: string;
+    venue: Venue;
+    symbol: string;
+    liquiditySol: number;
+    tokenAddress?: string;
+  }) => string | null;
+
+  /** Apply a completed safety-check verdict (rugcheck + on-chain) to a real opportunity. */
+  applySafetyVerdict: (input: {
+    opportunityId: string;
+    score: number | null;
+    verdict: "safe" | "caution" | "danger" | "unknown";
+  }) => void;
+
+  /** Hydrate state from server persistence (called after sign-in). */
+  hydrateFromServer: (payload: {
+    settings: Record<string, unknown> | null;
+    trades: Array<Record<string, unknown>>;
+    logs: Array<Record<string, unknown>>;
+    watchlist: Array<Record<string, unknown>>;
+  }) => void;
 }
 
 const initialBankroll = 0.1;
@@ -178,6 +211,7 @@ const initial = {
   walletAddress: null as string | null,
   walletConnecting: false,
   walletError: null as string | null,
+  walletBalanceSol: null as number | null,
 
   userDeposit: initialBankroll,
   bankroll: initialBankroll,
@@ -329,6 +363,8 @@ export const useBotStore = create<BotState>()(
           }).slice(0, MAX_LOG),
         })),
 
+      setWalletBalance: (sol) => set({ walletBalanceSol: sol }),
+
       setWalletFromAdapter: ({ connected, connecting, address, walletName }) => {
         const s = get();
         const changed =
@@ -366,6 +402,65 @@ export const useBotStore = create<BotState>()(
             summary,
           }).slice(0, MAX_LOG),
         })),
+
+      setTradeSettlement: (tradeId, patch) =>
+        set((s) => {
+          const idx = s.tradeHistory.findIndex((t) => t.id === tradeId);
+          if (idx < 0) return {};
+          const prev = s.tradeHistory[idx];
+          const updated: TradeHistoryEntry = {
+            ...prev,
+            settlementStatus: patch.status,
+            feeTxSig: patch.feeTxSig ?? prev.feeTxSig,
+            settlementError: patch.error ?? prev.settlementError,
+            settledAt: patch.status === "settled" ? Date.now() : prev.settledAt,
+          };
+          const nextHistory = s.tradeHistory.slice();
+          nextHistory[idx] = updated;
+          const auditLine =
+            patch.status === "settled"
+              ? `Audit#${tradeId.slice(0, 6)} settled · fee ${prev.feePaidSol.toFixed(5)} SOL → ${shortAddr(prev.feeWallet ?? "?")} · sig ${(patch.feeTxSig ?? "").slice(0, 8)}…`
+              : patch.status === "failed"
+                ? `Audit#${tradeId.slice(0, 6)} settlement FAILED · ${patch.error ?? "unknown"} · net retained ${prev.pnlSol.toFixed(5)} SOL (fee unpaid)`
+                : `Audit#${tradeId.slice(0, 6)} settlement ${patch.status}`;
+          return {
+            tradeHistory: nextHistory,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: patch.status === "failed" ? "error" : "audit",
+              summary: auditLine,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+      rollbackTradeFee: (tradeId, reason) =>
+        set((s) => {
+          const idx = s.tradeHistory.findIndex((t) => t.id === tradeId);
+          if (idx < 0) return {};
+          const prev = s.tradeHistory[idx];
+          if (prev.feePaidSol <= 0) return {}; // already rolled back / never charged
+          const restored = prev.feePaidSol;
+          const updated: TradeHistoryEntry = {
+            ...prev,
+            feePaidSol: 0,
+            netToUserSol: prev.pnlSol, // fee credited back to user
+            settlementStatus: "failed",
+            settlementError: `rolled back: ${reason}`,
+          };
+          const nextHistory = s.tradeHistory.slice();
+          nextHistory[idx] = updated;
+          // Restore the reserved fee to bankroll so subsequent sizing is correct.
+          return {
+            tradeHistory: nextHistory,
+            bankroll: s.bankroll + restored,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "audit",
+              summary: `Rollback#${tradeId.slice(0, 6)} fee ${restored.toFixed(5)} SOL credited back to user (${reason})`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
 
       setUserDeposit: (v) => {
         if (!Number.isFinite(v) || v < MIN_USER_DEPOSIT_SOL) {
@@ -466,6 +561,7 @@ export const useBotStore = create<BotState>()(
             reason: "kill",
             feePaidSol: 0,
             netToUserSol: (p.current - p.entry) * (p.sizeSol / p.entry),
+            settlementStatus: "n/a",
           }));
           return {
             status: "idle",
@@ -512,6 +608,7 @@ export const useBotStore = create<BotState>()(
             feePaidSol: fee,
             netToUserSol: net,
             feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
+            settlementStatus: fee > 0 ? "pending" : "n/a",
           };
           return {
             positions: s.positions.filter((x) => x.id !== pid),
@@ -527,6 +624,16 @@ export const useBotStore = create<BotState>()(
                 ts: Date.now(),
                 type: "execution",
                 summary: `Manual close ${p.token} · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+              },
+              {
+                id: id(),
+                ts: Date.now(),
+                type: "audit" as const,
+                summary:
+                  `Audit#${entry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · ` +
+                  `pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · ` +
+                  `fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · ` +
+                  `net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
               },
               ...(fee > 0
                 ? [
@@ -566,7 +673,7 @@ export const useBotStore = create<BotState>()(
           };
         }),
 
-      addWatch: ({ symbol, venue, note }) => {
+      addWatch: ({ symbol, venue, note, mintAddress }) => {
         const s = get();
         const clean = symbol.trim().toUpperCase();
         if (!/^[A-Z0-9]+\/[A-Z0-9]+$/.test(clean)) {
@@ -632,6 +739,7 @@ export const useBotStore = create<BotState>()(
               positiveStreak: 0,
               addedAt: Date.now(),
               note,
+              mintAddress: mintAddress?.trim() || null,
             },
             ...s.watchlist,
           ],
@@ -872,7 +980,7 @@ export const useBotStore = create<BotState>()(
               bankroll += p.sizeSol + net;
               feesAccrued += fee;
               const reason: TradeHistoryEntry["reason"] = rr >= p.tp ? "tp" : "sl";
-              newHistory.push({
+              const tradeEntry: TradeHistoryEntry = {
                 id: id(),
                 ts: Date.now(),
                 mode: s.mode,
@@ -886,12 +994,25 @@ export const useBotStore = create<BotState>()(
                 feePaidSol: fee,
                 netToUserSol: net,
                 feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
-              });
+                settlementStatus: fee > 0 ? "pending" : "n/a",
+              };
+              newHistory.push(tradeEntry);
               newLogs.push({
                 id: id(),
                 ts: Date.now(),
                 type: "execution",
                 summary: `Exit ${p.token} @ ${reason.toUpperCase()} · ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+              });
+              // Profit audit trail — pre-settlement snapshot (paper or live).
+              newLogs.push({
+                id: id(),
+                ts: Date.now(),
+                type: "audit",
+                summary:
+                  `Audit#${tradeEntry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · ` +
+                  `pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · ` +
+                  `fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · ` +
+                  `net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
               });
               if (fee > 0) {
                 newLogs.push({
@@ -1178,6 +1299,157 @@ export const useBotStore = create<BotState>()(
           });
         }
       },
+
+      pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress }) => {
+        const s = get();
+        const sf = s.safetyFilters;
+        if (liquiditySol < sf.minLiquiditySol) {
+          set((st) => ({
+            log: prepend(st.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "safety",
+              summary: `${symbol} FILTERED · liquidity ${liquiditySol.toFixed(2)}<${sf.minLiquiditySol} SOL`,
+            }).slice(0, MAX_LOG),
+          }));
+          return null;
+        }
+        // Real, discovered token: safety is UNKNOWN until an actual check
+        // (rugcheck + on-chain) completes. -1 / "skip" is the honest
+        // default — never assign a random score or auto-enter a live
+        // opportunity nobody has verified. The safety-check hook applies
+        // the real verdict via applySafetyVerdict once it resolves.
+        const oppId = id();
+        const opp: Opportunity = {
+          id: oppId,
+          ts: Date.now(),
+          token,
+          mint: tokenAddress,
+          venue,
+          liquiditySol,
+          safety: -1,
+          confidence: 0,
+          decision: "skip",
+          reason: "awaiting safety check",
+        };
+        set((st) => {
+          const opportunities = [opp, ...st.opportunities];
+          if (opportunities.length > MAX_FEED) opportunities.length = MAX_FEED;
+          return {
+            opportunities,
+            log: prepend(st.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "feed",
+              summary: `Live · ${symbol} @ ${venue} · liq ${liquiditySol.toFixed(2)} SOL`,
+            }).slice(0, MAX_LOG),
+          };
+        });
+        return oppId;
+      },
+
+      applySafetyVerdict: ({ opportunityId, score, verdict }) =>
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          if (!opp) return {};
+          const sf = s.safetyFilters;
+          const passes =
+            score != null && score >= sf.minSafety && verdict !== "danger" && verdict !== "unknown";
+          const updated: Opportunity = {
+            ...opp,
+            safety: score ?? -1,
+            decision: passes ? "enter" : "skip",
+            reason: passes ? undefined : `safety verdict: ${verdict} (${score ?? "n/a"})`,
+          };
+          return {
+            opportunities: s.opportunities.map((o) => (o.id === opportunityId ? updated : o)),
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "safety",
+              summary: `${opp.token} safety check → ${verdict} (${score ?? "n/a"}/100)`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
+      hydrateFromServer: ({ settings, trades, logs, watchlist }) =>
+        set((s) => {
+          const patch: Partial<BotState> = {};
+          if (settings && typeof settings === "object") {
+            const st = settings as Record<string, unknown>;
+            if (typeof st.userDeposit === "number") {
+              patch.userDeposit = st.userDeposit;
+              patch.bankroll = st.userDeposit;
+              patch.startBankroll = st.userDeposit;
+              patch.peakBankroll = st.userDeposit;
+            }
+            if (typeof st.platformFeePct === "number") patch.platformFeePct = st.platformFeePct;
+            if (typeof st.mode === "string" && (st.mode === "paper" || st.mode === "live")) {
+              patch.mode = st.mode;
+            }
+            if (typeof st.liveConfirmed === "boolean") patch.liveConfirmed = st.liveConfirmed;
+            if (st.guardrails && typeof st.guardrails === "object") {
+              patch.guardrails = { ...s.guardrails, ...(st.guardrails as Partial<Guardrails>) };
+            }
+            if (st.safetyFilters && typeof st.safetyFilters === "object") {
+              patch.safetyFilters = {
+                ...s.safetyFilters,
+                ...(st.safetyFilters as Partial<SafetyFilters>),
+              };
+            }
+            if (st.activeVenues && typeof st.activeVenues === "object") {
+              patch.activeVenues = {
+                ...s.activeVenues,
+                ...(st.activeVenues as Record<Venue, boolean>),
+              };
+            }
+            if (typeof st.autoCurate === "boolean") patch.autoCurate = st.autoCurate;
+          }
+          if (Array.isArray(trades) && trades.length) {
+            patch.tradeHistory = trades.slice(0, MAX_HISTORY).map((t) => ({
+              id: String(t.client_id ?? t.id ?? id()),
+              ts: new Date(String(t.ts ?? Date.now())).getTime(),
+              mode: (t.mode === "live" ? "live" : "paper") as BotMode,
+              token: String(t.token ?? "?"),
+              venue: (t.venue as Venue) ?? "raydium",
+              sizeSol: Number(t.size_sol ?? 0),
+              entry: Number(t.entry ?? 0),
+              exit: Number(t.exit ?? 0),
+              pnlSol: Number(t.pnl_sol ?? 0),
+              reason: String(t.reason ?? "manual") as TradeHistoryEntry["reason"],
+              feePaidSol: Number(t.fee_paid_sol ?? 0),
+              netToUserSol: Number(t.net_to_user_sol ?? 0),
+              feeWallet: (t.fee_wallet as string | undefined) ?? undefined,
+              settlementStatus:
+                (t.settlement_status as TradeHistoryEntry["settlementStatus"]) ?? "n/a",
+              feeTxSig: (t.fee_tx_sig as string | undefined) ?? undefined,
+            }));
+          }
+          if (Array.isArray(logs) && logs.length) {
+            patch.log = logs.slice(0, MAX_LOG).map((l) => ({
+              id: String(l.id ?? id()),
+              ts: new Date(String(l.ts ?? Date.now())).getTime(),
+              type: (l.type as DecisionLogEntry["type"]) ?? "audit",
+              summary: String(l.summary ?? ""),
+            }));
+          }
+          if (Array.isArray(watchlist) && watchlist.length) {
+            patch.watchlist = watchlist.map((w) => ({
+              id: String(w.id ?? id()),
+              symbol: String(w.symbol ?? ""),
+              venue: (w.venue as Venue) ?? "raydium",
+              source: (w.source as WatchSource) ?? "manual",
+              enabled: w.enabled !== false,
+              safety: Number(w.safety ?? 0),
+              liquiditySol: Number(w.liquidity_sol ?? 0),
+              positiveStreak: Number(w.positive_streak ?? 0),
+              addedAt: new Date(String(w.added_at ?? Date.now())).getTime(),
+              note: (w.note as string | undefined) ?? undefined,
+              mintAddress: (w.mint_address as string | null | undefined) ?? null,
+            }));
+          }
+          return patch;
+        }),
     }),
     {
       name: "sniperbot-state-v2",
@@ -1213,6 +1485,11 @@ export const useBotStore = create<BotState>()(
         tradeHistory: s.tradeHistory,
       }),
       version: 3,
+      // Skip synchronous hydration during SSR so the server-rendered HTML
+      // uses defaults; useBotStore.persist.rehydrate() is called on the
+      // client after mount to load the persisted state without triggering
+      // a React hydration mismatch.
+      skipHydration: true,
 
       onRehydrateStorage: () => (state) => {
         // Never restore "running" — always start idle so the simulator does not
