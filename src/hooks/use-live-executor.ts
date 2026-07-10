@@ -21,6 +21,21 @@ import { updateTradeSettlement } from "@/lib/persistence.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 const MIN_FEE_LAMPORTS = 1_000; // dust guard: below this, skip the transfer
+// Reconciliation tolerance: observed delta may differ from expected by up to
+// ~0.0005 SOL to accommodate Solana base tx fee (~5000 lamports) + priority tip.
+const RECONCILE_TOLERANCE_LAMPORTS = 500_000;
+const CONFIRM_TIMEOUT_MS = 30_000;
+
+async function getBalanceLamports(
+  connection: import("@solana/web3.js").Connection,
+  pk: import("@solana/web3.js").PublicKey,
+): Promise<number | null> {
+  try {
+    return await connection.getBalance(pk, "confirmed");
+  } catch {
+    return null;
+  }
+}
 
 export function useLiveExecutor() {
   const { connection } = useConnection();
