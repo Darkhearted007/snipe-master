@@ -108,7 +108,8 @@ export function useServerPersistence(enabled: boolean) {
       if (settingsTimer.current) window.clearTimeout(settingsTimer.current);
       const snap: Record<string, unknown> = {};
       for (const k of SETTINGS_KEYS) snap[k] = (s as unknown as Record<string, unknown>)[k];
-      settingsTimer.current = window.setTimeout(() => {
+      settingsTimer.current = window.setTimeout(async () => {
+        if (!(await hasSession())) return;
         retryWrite(
           () => saveSettings({ data: { settingsJson: JSON.stringify(snap) } }),
           "settings save",
