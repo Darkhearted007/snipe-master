@@ -130,6 +130,12 @@ interface BotState {
 
   logAudit: (summary: string, type?: DecisionLogEntry["type"]) => void;
 
+  /** Update the on-chain settlement state for a recorded trade. */
+  setTradeSettlement: (
+    tradeId: string,
+    patch: { status: TradeHistoryEntry["settlementStatus"]; feeTxSig?: string; error?: string },
+  ) => void;
+
   tick: () => void;
   healthCheck: () => void;
 
