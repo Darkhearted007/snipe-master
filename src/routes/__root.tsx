@@ -29,6 +29,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { useBotSimulator } from "@/hooks/use-bot-simulator";
 import { SolanaProviders } from "@/lib/solana-provider";
 import { useAuthSession } from "@/hooks/use-auth-session";
+import { useServerPersistence } from "@/hooks/use-server-persistence";
+import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
+import { useLiveExecutor } from "@/hooks/use-live-executor";
+import { useBotStore } from "@/lib/bot-store";
+import { useWalletReady } from "@/lib/solana-provider";
 
 
 
