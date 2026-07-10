@@ -99,9 +99,15 @@ export const saveUserSettings = createServerFn({ method: "POST" })
       supabase: import("@supabase/supabase-js").SupabaseClient;
       userId: string;
     };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data.settingsJson);
+    } catch {
+      throw new Error("settingsJson must be valid JSON");
+    }
     const { error } = await supabase
       .from("user_settings")
-      .upsert({ user_id: userId, settings: data.settings }, { onConflict: "user_id" });
+      .upsert({ user_id: userId, settings: parsed }, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
