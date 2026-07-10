@@ -11,6 +11,16 @@ import {
 } from "@/lib/persistence.functions";
 import { logStructured } from "@/lib/structured-logger";
 import { retryWithBackoff, isPermanentError } from "@/lib/retry-backoff";
+import { supabase } from "@/integrations/supabase/client";
+
+async function hasSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return !!data.session?.access_token;
+  } catch {
+    return false;
+  }
+}
 
 const SETTINGS_KEYS = [
   "mode",
@@ -67,6 +77,7 @@ export function useServerPersistence(enabled: boolean) {
     if (!enabled || hydrated.current) return;
     hydrated.current = true;
     (async () => {
+      if (!(await hasSession())) { hydrated.current = false; return; }
       try {
         const payload = (await retryWrite(() => load(), "hydrate")) as LoadedState;
         useBotStore.getState().hydrateFromServer({
@@ -97,7 +108,8 @@ export function useServerPersistence(enabled: boolean) {
       if (settingsTimer.current) window.clearTimeout(settingsTimer.current);
       const snap: Record<string, unknown> = {};
       for (const k of SETTINGS_KEYS) snap[k] = (s as unknown as Record<string, unknown>)[k];
-      settingsTimer.current = window.setTimeout(() => {
+      settingsTimer.current = window.setTimeout(async () => {
+        if (!(await hasSession())) return;
         retryWrite(
           () => saveSettings({ data: { settingsJson: JSON.stringify(snap) } }),
           "settings save",
@@ -132,7 +144,8 @@ export function useServerPersistence(enabled: boolean) {
         note: w.note ?? null,
         added_at: w.addedAt,
       }));
-      watchTimer.current = window.setTimeout(() => {
+      watchTimer.current = window.setTimeout(async () => {
+        if (!(await hasSession())) return;
         retryWrite(() => flushWatch({ data: { entries } }), "watchlist save").catch((e) =>
           logStructured(e, {
             category: "persistence",
@@ -152,6 +165,7 @@ export function useServerPersistence(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const iv = window.setInterval(async () => {
+      if (!(await hasSession())) return;
       const s = useBotStore.getState();
       // logs — take everything newer than lastLogId
       const newLogs: typeof s.log = [];
