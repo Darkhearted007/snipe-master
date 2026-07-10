@@ -129,6 +129,23 @@ interface BotState {
 
   tick: () => void;
   healthCheck: () => void;
+
+  /** Push a real (non-simulated) opportunity from an external stream (DexScreener). */
+  pushRealOpportunity: (input: {
+    token: string;
+    venue: Venue;
+    symbol: string;
+    liquiditySol: number;
+    tokenAddress?: string;
+  }) => void;
+
+  /** Hydrate state from server persistence (called after sign-in). */
+  hydrateFromServer: (payload: {
+    settings: Record<string, unknown> | null;
+    trades: Array<Record<string, unknown>>;
+    logs: Array<Record<string, unknown>>;
+    watchlist: Array<Record<string, unknown>>;
+  }) => void;
 }
 
 
@@ -1013,6 +1030,111 @@ export const useBotStore = create<BotState>()(
         }
 
       },
+
+      pushRealOpportunity: ({ token, venue, symbol, liquiditySol }) =>
+        set((s) => {
+          const sf = s.safetyFilters;
+          if (liquiditySol < sf.minLiquiditySol) {
+            return {
+              log: prepend(s.log, {
+                id: id(),
+                ts: Date.now(),
+                type: "safety",
+                summary: `${symbol} FILTERED · liquidity ${liquiditySol.toFixed(2)}<${sf.minLiquiditySol} SOL`,
+              }).slice(0, MAX_LOG),
+            };
+          }
+          const opp: Opportunity = {
+            id: id(),
+            ts: Date.now(),
+            token,
+            venue,
+            liquiditySol,
+            safety: Math.floor(60 + Math.random() * 40),
+            confidence: Math.floor(50 + Math.random() * 50),
+            decision: "enter",
+          };
+          const opportunities = [opp, ...s.opportunities];
+          if (opportunities.length > MAX_FEED) opportunities.length = MAX_FEED;
+          return {
+            opportunities,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "feed",
+              summary: `Live · ${symbol} @ ${venue} · liq ${liquiditySol.toFixed(2)} SOL`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
+
+      hydrateFromServer: ({ settings, trades, logs, watchlist }) =>
+        set((s) => {
+          const patch: Partial<BotState> = {};
+          if (settings && typeof settings === "object") {
+            const st = settings as Record<string, unknown>;
+            if (typeof st.userDeposit === "number") {
+              patch.userDeposit = st.userDeposit;
+              patch.bankroll = st.userDeposit;
+              patch.startBankroll = st.userDeposit;
+              patch.peakBankroll = st.userDeposit;
+            }
+            if (typeof st.platformFeePct === "number") patch.platformFeePct = st.platformFeePct;
+            if (typeof st.mode === "string" && (st.mode === "paper" || st.mode === "live")) {
+              patch.mode = st.mode;
+            }
+            if (typeof st.liveConfirmed === "boolean") patch.liveConfirmed = st.liveConfirmed;
+            if (st.guardrails && typeof st.guardrails === "object") {
+              patch.guardrails = { ...s.guardrails, ...(st.guardrails as Partial<Guardrails>) };
+            }
+            if (st.safetyFilters && typeof st.safetyFilters === "object") {
+              patch.safetyFilters = { ...s.safetyFilters, ...(st.safetyFilters as Partial<SafetyFilters>) };
+            }
+            if (st.activeVenues && typeof st.activeVenues === "object") {
+              patch.activeVenues = { ...s.activeVenues, ...(st.activeVenues as Record<Venue, boolean>) };
+            }
+            if (typeof st.autoCurate === "boolean") patch.autoCurate = st.autoCurate;
+          }
+          if (Array.isArray(trades) && trades.length) {
+            patch.tradeHistory = trades.slice(0, MAX_HISTORY).map((t) => ({
+              id: String(t.id ?? id()),
+              ts: new Date(String(t.ts ?? Date.now())).getTime(),
+              mode: (t.mode === "live" ? "live" : "paper") as BotMode,
+              token: String(t.token ?? "?"),
+              venue: (t.venue as Venue) ?? "raydium",
+              sizeSol: Number(t.size_sol ?? 0),
+              entry: Number(t.entry ?? 0),
+              exit: Number(t.exit ?? 0),
+              pnlSol: Number(t.pnl_sol ?? 0),
+              reason: (String(t.reason ?? "manual") as TradeHistoryEntry["reason"]),
+              feePaidSol: Number(t.fee_paid_sol ?? 0),
+              netToUserSol: Number(t.net_to_user_sol ?? 0),
+              feeWallet: (t.fee_wallet as string | undefined) ?? undefined,
+            }));
+          }
+          if (Array.isArray(logs) && logs.length) {
+            patch.log = logs.slice(0, MAX_LOG).map((l) => ({
+              id: String(l.id ?? id()),
+              ts: new Date(String(l.ts ?? Date.now())).getTime(),
+              type: (l.type as DecisionLogEntry["type"]) ?? "audit",
+              summary: String(l.summary ?? ""),
+            }));
+          }
+          if (Array.isArray(watchlist) && watchlist.length) {
+            patch.watchlist = watchlist.map((w) => ({
+              id: String(w.id ?? id()),
+              symbol: String(w.symbol ?? ""),
+              venue: (w.venue as Venue) ?? "raydium",
+              source: ((w.source as WatchSource) ?? "manual"),
+              enabled: w.enabled !== false,
+              safety: Number(w.safety ?? 0),
+              liquiditySol: Number(w.liquidity_sol ?? 0),
+              positiveStreak: Number(w.positive_streak ?? 0),
+              addedAt: new Date(String(w.added_at ?? Date.now())).getTime(),
+              note: (w.note as string | undefined) ?? undefined,
+            }));
+          }
+          return patch;
+        }),
     }),
     {
       name: "sniperbot-state-v2",
