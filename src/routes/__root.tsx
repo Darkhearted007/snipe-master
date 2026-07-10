@@ -145,6 +145,10 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useEffect(() => {
+    // Rehydrate persisted bot state after mount (persist has skipHydration).
+    void useBotStore.persist.rehydrate();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
