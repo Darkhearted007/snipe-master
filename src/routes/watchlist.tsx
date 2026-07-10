@@ -58,6 +58,7 @@ function WatchlistPage() {
   const [symbol, setSymbol] = useState("");
   const [venue, setVenue] = useState<Venue>("raydium");
   const [note, setNote] = useState("");
+  const [mintAddress, setMintAddress] = useState("");
   const [tab, setTab] = useState<WatchSource | "all">("all");
 
   const filtered = useMemo(
