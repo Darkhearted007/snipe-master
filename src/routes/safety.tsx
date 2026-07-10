@@ -35,7 +35,7 @@ export const Route = createFileRoute("/safety")({
 function SafetyPage() {
   const [input, setInput] = useState("");
   const [mint, setMint] = useState<string | null>(null);
-  const opps = useBotStore((s) => s.opportunities);
+  const watchlist = useBotStore((s) => s.watchlist);
   const safety = useTokenSafety(mint);
 
   const submit = (val: string) => {
