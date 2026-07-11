@@ -19,7 +19,9 @@ interface DiscoveryQueryBuilder {
   is(column: string, value: unknown): this;
   order(column: string, opts: { ascending: boolean }): this;
   limit(n: number): Promise<{ data: DiscoveryRow[] | null; error: { message: string } | null }>;
-  update(values: Partial<DiscoveryRow>): { eq(column: string, value: unknown): Promise<{ error: { message: string } | null }> };
+  update(values: Partial<DiscoveryRow>): {
+    eq(column: string, value: unknown): Promise<{ error: { message: string } | null }>;
+  };
 }
 
 interface AdminClient {
