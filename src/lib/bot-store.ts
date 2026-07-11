@@ -190,6 +190,24 @@ interface BotState {
     verdict: "safe" | "caution" | "danger" | "unknown";
   }) => void;
 
+  /** Replace the live discovery candidate cache (populated from /api/discovery). */
+  setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => void;
+
+  /** Validate that a live entry is safe and compute its size. */
+  requestLiveEntry: (
+    opportunityId: string,
+  ) => { ok: true; sizeSol: number } | { ok: false; error: string };
+
+  /** Record a confirmed on-chain live entry as an open position. */
+  confirmLiveEntry: (input: {
+    opportunityId: string;
+    sizeSol: number;
+    signature: string;
+  }) => void;
+
+  /** Record a failed live entry attempt. */
+  failLiveEntry: (input: { opportunityId: string; reason: string }) => void;
+
   /** Hydrate state from server persistence (called after sign-in). */
   hydrateFromServer: (payload: {
     settings: Record<string, unknown> | null;
