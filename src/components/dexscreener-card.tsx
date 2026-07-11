@@ -68,7 +68,6 @@ export function DexScreenerCard() {
             >
               <div className="flex min-w-0 items-center gap-2">
                 {t.icon ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={t.icon}
                     alt=""
