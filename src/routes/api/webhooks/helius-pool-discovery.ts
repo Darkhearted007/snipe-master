@@ -116,7 +116,8 @@ export const Route = createFileRoute("/api/webhooks/helius-pool-discovery")({
           }),
         );
 
-        const { error } = await (supabaseAdmin as any).from("discovery_candidates").upsert(
+        const admin = supabaseAdmin as unknown as AdminClient;
+        const { error } = await admin.from("discovery_candidates").upsert(
           scored.map((c) => ({
             mint: c.mint,
             decimals: c.decimals,
