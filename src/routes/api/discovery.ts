@@ -45,24 +45,25 @@ export const Route = createFileRoute("/api/discovery")({
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
       GET: async () => {
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const admin = supabaseAdmin as AdminClient;
 
         // Best-effort prune; don't fail the read if it errors.
-        const pruneResult = await (supabaseAdmin as any).rpc("prune_stale_discovery_candidates");
+        const pruneResult = await admin.rpc("prune_stale_discovery_candidates");
         if (pruneResult.error) {
           console.error("[discovery] prune failed", pruneResult.error);
         }
 
-        const { data: unscored } = await (supabaseAdmin as any)
+        const { data: unscored } = await admin
           .from("discovery_candidates")
           .select("mint, lp_mint")
           .is("safety_score", null)
           .order("discovered_at", { ascending: true })
           .limit(MAX_EVALUATIONS_PER_REQUEST);
 
-        for (const row of (unscored ?? []) as Array<{ mint: string; lp_mint: string | null }>) {
+        for (const row of unscored ?? []) {
           try {
             const result = await evaluateMintSafety(row.mint, row.lp_mint);
-            const { error: updateError } = await (supabaseAdmin as any)
+            const { error: updateError } = await admin
               .from("discovery_candidates")
               .update({
                 safety_score: result.score,
@@ -79,7 +80,7 @@ export const Route = createFileRoute("/api/discovery")({
           }
         }
 
-        const { data, error } = await (supabaseAdmin as any)
+        const { data, error } = await admin
           .from("discovery_candidates")
           .select("mint, decimals, venue, symbol, discovered_at, safety_score, liquidity_usd")
           .order("discovered_at", { ascending: false })
