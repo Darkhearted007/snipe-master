@@ -5,13 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { Loader2, ShieldCheck, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { WalletBar } from "@/components/wallet-bar";
 import { useWalletReady } from "@/lib/solana-provider";
@@ -25,8 +19,7 @@ export const Route = createFileRoute("/auth")({
       { title: "Sign in — SniperBot" },
       {
         name: "description",
-        content:
-          "Sign in with your Solana wallet to access the SniperBot operator dashboard.",
+        content: "Sign in with your Solana wallet to access the SniperBot operator dashboard.",
       },
     ],
   }),
@@ -51,8 +44,7 @@ function AuthPage() {
             <CardTitle>Sign in to SniperBot</CardTitle>
           </div>
           <CardDescription>
-            Connect your Solana wallet and sign a one-time challenge. No transaction,
-            no gas.
+            Connect your Solana wallet and sign a one-time challenge. No transaction, no gas.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -66,9 +58,8 @@ function AuthPage() {
           <Alert>
             <AlertTitle className="text-xs">How access works</AlertTitle>
             <AlertDescription className="text-xs text-muted-foreground">
-              New wallets start with <span className="font-mono">viewer</span>{" "}
-              access. An admin can promote you to{" "}
-              <span className="font-mono">trader</span> to control the bot. The
+              New wallets start with <span className="font-mono">viewer</span> access. An admin can
+              promote you to <span className="font-mono">trader</span> to control the bot. The
               bootstrap admin wallet is auto-promoted on first sign-in.
             </AlertDescription>
           </Alert>
@@ -96,12 +87,7 @@ function SiwsPanel() {
       const address = publicKey.toBase58();
       const { nonce } = await reqNonce({ data: { walletAddress: address } });
       const msg = new TextEncoder().encode(
-        [
-          "Sign in to SniperBot Dashboard",
-          "",
-          `Wallet: ${address}`,
-          `Nonce: ${nonce}`,
-        ].join("\n"),
+        ["Sign in to SniperBot Dashboard", "", `Wallet: ${address}`, `Nonce: ${nonce}`].join("\n"),
       );
       const sigBytes = await signMessage(msg);
       const bs58 = (await import("bs58")).default;
@@ -131,16 +117,8 @@ function SiwsPanel() {
       <div className="rounded-md border bg-muted/30 p-2">
         <WalletBar />
       </div>
-      <Button
-        className="w-full gap-1.5"
-        onClick={handleSignIn}
-        disabled={busy || !connected}
-      >
-        {busy ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <ShieldCheck className="h-4 w-4" />
-        )}
+      <Button className="w-full gap-1.5" onClick={handleSignIn} disabled={busy || !connected}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
         {connected ? "Sign challenge & sign in" : "Connect a wallet first"}
       </Button>
     </div>

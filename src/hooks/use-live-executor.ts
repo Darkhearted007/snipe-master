@@ -202,9 +202,7 @@ export function useLiveExecutor() {
           // 2a. All send attempts failed → ROLLBACK accounting so the user is
           // credited for the fee they were never actually charged.
           if (!sig) {
-            useBotStore
-              .getState()
-              .rollbackTradeFee(t.id, lastError ?? "unknown send error");
+            useBotStore.getState().rollbackTradeFee(t.id, lastError ?? "unknown send error");
             await persistSettlement(t.id, "failed");
             continue;
           }
@@ -219,10 +217,7 @@ export function useLiveExecutor() {
                 "confirmed",
               ),
               new Promise((_r, rej) =>
-                setTimeout(
-                  () => rej(new Error("confirm timeout")),
-                  CONFIRM_TIMEOUT_MS,
-                ),
+                setTimeout(() => rej(new Error("confirm timeout")), CONFIRM_TIMEOUT_MS),
               ),
             ]);
           } catch (ce) {

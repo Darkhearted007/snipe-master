@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ComponentType, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 
 // Client-only wrapper. @solana/* pulls rpc-websockets which has no
 // workerd export condition, so it must never enter the SSR bundle.
@@ -10,9 +17,7 @@ export function useWalletReady() {
 }
 
 export function SolanaProviders({ children }: { children: ReactNode }) {
-  const [Providers, setProviders] = useState<ComponentType<{ children: ReactNode }> | null>(
-    null,
-  );
+  const [Providers, setProviders] = useState<ComponentType<{ children: ReactNode }> | null>(null);
 
   useEffect(() => {
     let cancelled = false;

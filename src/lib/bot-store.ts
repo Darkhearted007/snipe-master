@@ -190,6 +190,20 @@ interface BotState {
     verdict: "safe" | "caution" | "danger" | "unknown";
   }) => void;
 
+  /** Replace the live discovery candidate cache (populated from /api/discovery). */
+  setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => void;
+
+  /** Validate that a live entry is safe and compute its size. */
+  requestLiveEntry: (
+    opportunityId: string,
+  ) => { ok: true; sizeSol: number } | { ok: false; error: string };
+
+  /** Record a confirmed on-chain live entry as an open position. */
+  confirmLiveEntry: (input: { opportunityId: string; sizeSol: number; signature: string }) => void;
+
+  /** Record a failed live entry attempt. */
+  failLiveEntry: (input: { opportunityId: string; reason: string }) => void;
+
   /** Hydrate state from server persistence (called after sign-in). */
   hydrateFromServer: (payload: {
     settings: Record<string, unknown> | null;
@@ -867,9 +881,9 @@ export const useBotStore = create<BotState>()(
         set({ lastHealthAt: Date.now() });
       },
 
-      setDiscoveryCandidates: (rows) => set({ discoveryCandidates: rows }),
+      setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => set({ discoveryCandidates: rows }),
 
-      requestLiveEntry: (opportunityId) => {
+      requestLiveEntry: (opportunityId: string) => {
         const s = get();
         const opp = s.opportunities.find((o) => o.id === opportunityId);
         if (!opp) return { ok: false, error: "Opportunity not found" };
@@ -896,7 +910,15 @@ export const useBotStore = create<BotState>()(
       // Called only after a real swap has been signed, sent, AND confirmed
       // on-chain (see useLiveExecution). Bankroll only ever moves here for
       // live trades — tick() never touches it in live mode.
-      confirmLiveEntry: ({ opportunityId, sizeSol, signature }) =>
+      confirmLiveEntry: ({
+        opportunityId,
+        sizeSol,
+        signature,
+      }: {
+        opportunityId: string;
+        sizeSol: number;
+        signature: string;
+      }) =>
         set((s) => {
           const opp = s.opportunities.find((o) => o.id === opportunityId);
           if (!opp || !opp.mint) return {};
@@ -929,7 +951,7 @@ export const useBotStore = create<BotState>()(
           };
         }),
 
-      failLiveEntry: ({ opportunityId, reason }) =>
+      failLiveEntry: ({ opportunityId, reason }: { opportunityId: string; reason: string }) =>
         set((s) => {
           const opp = s.opportunities.find((o) => o.id === opportunityId);
           return {

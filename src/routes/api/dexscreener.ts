@@ -23,10 +23,7 @@ const ALLOWED = new Set([
 ]);
 
 const TTL_MS = 15_000;
-const cache = new Map<
-  string,
-  { at: number; status: number; body: string }
->();
+const cache = new Map<string, { at: number; status: number; body: string }>();
 
 export const Route = createFileRoute("/api/dexscreener")({
   server: {
@@ -36,13 +33,10 @@ export const Route = createFileRoute("/api/dexscreener")({
         const url = new URL(request.url);
         const feed = url.searchParams.get("feed") ?? "";
         if (!ALLOWED.has(feed)) {
-          return new Response(
-            JSON.stringify({ error: "Unknown feed", allowed: [...ALLOWED] }),
-            {
-              status: 400,
-              headers: { "Content-Type": "application/json", ...CORS },
-            },
-          );
+          return new Response(JSON.stringify({ error: "Unknown feed", allowed: [...ALLOWED] }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...CORS },
+          });
         }
 
         const now = Date.now();
@@ -59,10 +53,9 @@ export const Route = createFileRoute("/api/dexscreener")({
         }
 
         try {
-          const upstream = await fetch(
-            `https://api.dexscreener.com/${feed}`,
-            { headers: { accept: "application/json" } },
-          );
+          const upstream = await fetch(`https://api.dexscreener.com/${feed}`, {
+            headers: { accept: "application/json" },
+          });
           const text = await upstream.text();
           cache.set(feed, { at: now, status: upstream.status, body: text });
           return new Response(text, {
@@ -86,13 +79,10 @@ export const Route = createFileRoute("/api/dexscreener")({
             });
           }
           const detail = e instanceof Error ? e.message : String(e);
-          return new Response(
-            JSON.stringify({ error: "Upstream unavailable", detail }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json", ...CORS },
-            },
-          );
+          return new Response(JSON.stringify({ error: "Upstream unavailable", detail }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...CORS },
+          });
         }
       },
     },

@@ -2,13 +2,32 @@ export type BotMode = "paper" | "live";
 export type BotStatus = "idle" | "running" | "paused" | "error";
 export type Venue = "raydium" | "pumpfun" | "bsc";
 export type DecisionType =
-  "feed" | "safety" | "strategy" | "execution" | "learning" | "audit" | "wallet" | "error";
+  | "feed"
+  | "safety"
+  | "strategy"
+  | "execution"
+  | "learning"
+  | "audit"
+  | "wallet"
+  | "error";
+
+/** Raw token/pool candidate discovered by the Helius webhook pipeline. */
+export interface DiscoveryCandidate {
+  mint: string;
+  decimals: number;
+  venue: string;
+  symbol: string;
+  discovered_at: string;
+  safety_score: number | null;
+  liquidity_usd: number | null;
+}
 
 export interface Opportunity {
   id: string;
   ts: number;
   token: string;
   mint?: string; // real SPL mint address for live-discovered tokens; absent for paper-mode synthetic tokens
+  decimals?: number; // SPL token decimals — needed for live swap sizing
   venue: Venue;
   liquiditySol: number;
   safety: number; // -1 = not yet checked; never treat as a passing score
@@ -21,6 +40,7 @@ export interface Position {
   id: string;
   token: string;
   mint?: string;
+  decimals?: number; // SPL token decimals, mirrored from the opportunity
   venue: Venue;
   entry: number;
   current: number;

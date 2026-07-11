@@ -23,10 +23,10 @@ export const Route = createFileRoute("/api/jupiter/quote")({
           Math.max(1, Number(url.searchParams.get("slippageBps") ?? "50")),
         );
         if (!inputMint || !outputMint || !amount || !/^\d+$/.test(amount)) {
-          return new Response(
-            JSON.stringify({ error: "inputMint, outputMint, amount required" }),
-            { status: 400, headers: { "Content-Type": "application/json", ...CORS } },
-          );
+          return new Response(JSON.stringify({ error: "inputMint, outputMint, amount required" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...CORS },
+          });
         }
         const params = new URLSearchParams({
           inputMint,
@@ -36,9 +36,7 @@ export const Route = createFileRoute("/api/jupiter/quote")({
           restrictIntermediateTokens: "true",
         });
         const key = process.env.JUPITER_API_KEY;
-        const base = key
-          ? "https://api.jup.ag/swap/v1/quote"
-          : "https://quote-api.jup.ag/v6/quote";
+        const base = key ? "https://api.jup.ag/swap/v1/quote" : "https://quote-api.jup.ag/v6/quote";
         try {
           const upstream = await fetch(`${base}?${params.toString()}`, {
             headers: key
@@ -52,10 +50,10 @@ export const Route = createFileRoute("/api/jupiter/quote")({
           });
         } catch (e) {
           const detail = e instanceof Error ? e.message : String(e);
-          return new Response(
-            JSON.stringify({ error: "Quote upstream unavailable", detail }),
-            { status: 200, headers: { "Content-Type": "application/json", ...CORS } },
-          );
+          return new Response(JSON.stringify({ error: "Quote upstream unavailable", detail }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...CORS },
+          });
         }
       },
     },

@@ -47,7 +47,6 @@ export function ControlHeader() {
   const [acknowledged, setAcknowledged] = useState(false);
   const [killDialog, setKillDialog] = useState(false);
 
-
   const handleMode = (m: BotMode) => {
     if (m === mode) return;
     if (!canTrade) {
@@ -105,7 +104,6 @@ export function ControlHeader() {
     stop();
   };
 
-
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur">
       <SidebarTrigger />
@@ -113,11 +111,7 @@ export function ControlHeader() {
         <ModeButton active={mode === "paper"} onClick={() => handleMode("paper")}>
           Paper
         </ModeButton>
-        <ModeButton
-          active={mode === "live"}
-          live
-          onClick={() => handleMode("live")}
-        >
+        <ModeButton active={mode === "live"} live onClick={() => handleMode("live")}>
           Solana Live
         </ModeButton>
       </div>
@@ -131,7 +125,6 @@ export function ControlHeader() {
             <span className="font-mono text-xs">Loading wallet…</span>
           </Button>
         ))}
-
 
       <div className="ml-auto flex items-center gap-2">
         <RoleBadge />
@@ -194,26 +187,20 @@ export function ControlHeader() {
               Enable Solana Live Mode
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Live mode executes real Solana transactions against your curated
-              token universe. Profits are returned to your connected wallet.
-              A configurable platform fee (default 10%) is taken from profits
-              only and routed to the platform treasury. Losses are irreversible.
+              Live mode executes real Solana transactions against your curated token universe.
+              Profits are returned to your connected wallet. A configurable platform fee (default
+              10%) is taken from profits only and routed to the platform treasury. Losses are
+              irreversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 p-3">
-            <Switch
-              id="ack"
-              checked={acknowledged}
-              onCheckedChange={setAcknowledged}
-            />
+            <Switch id="ack" checked={acknowledged} onCheckedChange={setAcknowledged} />
             <Label htmlFor="ack" className="text-sm">
               I understand real funds are at risk.
             </Label>
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setAcknowledged(false)}>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setAcknowledged(false)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={!acknowledged}
               onClick={() => {

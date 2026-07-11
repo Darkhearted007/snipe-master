@@ -39,7 +39,6 @@ export function AppSidebar() {
   const status = useBotStore((s) => s.status);
   const { allowed: isAdmin } = useHasRole("admin");
 
-
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">

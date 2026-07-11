@@ -70,8 +70,8 @@ export type LoadedState = {
   watchlist: string;
 };
 
-export const loadUserState = createServerFn({ method: "GET" })
-  .handler(async (): Promise<LoadedState> => {
+export const loadUserState = createServerFn({ method: "GET" }).handler(
+  async (): Promise<LoadedState> => {
     const auth = await getOptionalPersistenceAuth();
     if (!auth) return { settings: null, trades: "[]", logs: "[]", watchlist: "[]" };
     const { supabase, userId } = auth;
@@ -97,7 +97,8 @@ export const loadUserState = createServerFn({ method: "GET" })
       logs: JSON.stringify(l.data ?? []),
       watchlist: JSON.stringify(w.data ?? []),
     };
-  });
+  },
+);
 
 export const saveUserSettings = createServerFn({ method: "POST" })
   .inputValidator((raw) => settingsInput.parse(raw))

@@ -68,7 +68,6 @@ export function DexScreenerCard() {
             >
               <div className="flex min-w-0 items-center gap-2">
                 {t.icon ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={t.icon}
                     alt=""
@@ -80,9 +79,7 @@ export function DexScreenerCard() {
                   <div className="h-6 w-6 shrink-0 rounded-full bg-muted" />
                 )}
                 <div className="min-w-0">
-                  <div className="truncate font-mono text-xs">
-                    {shortAddr(t.tokenAddress)}
-                  </div>
+                  <div className="truncate font-mono text-xs">{shortAddr(t.tokenAddress)}</div>
                   <div className="truncate text-[10px] text-muted-foreground">
                     {t.chainId ?? "chain?"} · {(t.description ?? "").slice(0, 40)}
                   </div>
@@ -96,8 +93,8 @@ export function DexScreenerCard() {
           ))}
         </ul>
         <p className="text-[10px] text-muted-foreground">
-          Polled server-side every 20–30s from api.dexscreener.com. Note: those
-          URLs are HTTPS REST, not WebSocket — a WS connection would fail.
+          Polled server-side every 20–30s from api.dexscreener.com. Note: those URLs are HTTPS REST,
+          not WebSocket — a WS connection would fail.
         </p>
       </CardContent>
     </Card>

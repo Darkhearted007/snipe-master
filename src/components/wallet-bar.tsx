@@ -103,7 +103,9 @@ export function WalletBar() {
           <Button variant="secondary" size="sm" className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" />
             <span className="font-mono text-xs">{shortAddr(address)}</span>
-            <span className="font-mono text-[10px] text-muted-foreground">· {formatSol(balance)}</span>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              · {formatSol(balance)}
+            </span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
@@ -134,12 +136,7 @@ export function WalletBar() {
   }
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => setVisible(true)}
-      className="gap-1.5"
-    >
+    <Button variant="outline" size="sm" onClick={() => setVisible(true)} className="gap-1.5">
       <Wallet className="h-3.5 w-3.5" />
       <span className="font-mono text-xs">Connect wallet</span>
     </Button>

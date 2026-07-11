@@ -34,9 +34,7 @@ export const Route = createFileRoute("/api/jupiter/swap")({
           );
         }
         const key = process.env.JUPITER_API_KEY;
-        const base = key
-          ? "https://api.jup.ag/swap/v1/swap"
-          : "https://quote-api.jup.ag/v6/swap";
+        const base = key ? "https://api.jup.ag/swap/v1/swap" : "https://quote-api.jup.ag/v6/swap";
         try {
           const upstream = await fetch(base, {
             method: "POST",
@@ -60,10 +58,10 @@ export const Route = createFileRoute("/api/jupiter/swap")({
           });
         } catch (e) {
           const detail = e instanceof Error ? e.message : String(e);
-          return new Response(
-            JSON.stringify({ error: "Swap upstream unavailable", detail }),
-            { status: 200, headers: { "Content-Type": "application/json", ...CORS } },
-          );
+          return new Response(JSON.stringify({ error: "Swap upstream unavailable", detail }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...CORS },
+          });
         }
       },
     },

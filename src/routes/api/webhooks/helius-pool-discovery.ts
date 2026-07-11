@@ -3,6 +3,30 @@ import { extractCandidatesFromWebhookTx } from "@/lib/pool-discovery";
 import { evaluateMintSafety } from "@/lib/onchain-safety";
 import type { Json } from "@/integrations/supabase/types";
 
+interface DiscoveryRow {
+  mint: string;
+  lp_mint: string | null;
+  decimals: number;
+  venue: string;
+  symbol: string;
+  discovered_at?: string;
+  safety_score?: number | null;
+  liquidity_usd?: number | null;
+  raw_payload?: Json;
+  discovery_signature?: string;
+}
+
+interface DiscoveryUpsertBuilder {
+  upsert(
+    rows: Partial<DiscoveryRow>[],
+    opts?: { onConflict?: string; ignoreDuplicates?: boolean },
+  ): Promise<{ error: { message: string } | null }>;
+}
+
+interface AdminClient {
+  from(table: "discovery_candidates"): DiscoveryUpsertBuilder;
+}
+
 // Helius "raw" webhook — POST one array of getTransaction-shaped objects
 // per matching signature. Configure the webhook (via Helius dashboard or
 // their /v0/webhooks API) with:
@@ -92,7 +116,8 @@ export const Route = createFileRoute("/api/webhooks/helius-pool-discovery")({
           }),
         );
 
-        const { error } = await supabaseAdmin.from("discovery_candidates").upsert(
+        const admin = supabaseAdmin as unknown as AdminClient;
+        const { error } = await admin.from("discovery_candidates").upsert(
           scored.map((c) => ({
             mint: c.mint,
             decimals: c.decimals,

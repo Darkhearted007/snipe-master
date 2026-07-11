@@ -18,9 +18,21 @@ const rank = (roles: AppRole[]): AppRole =>
   roles.includes("admin") ? "admin" : roles.includes("trader") ? "trader" : "viewer";
 
 const meta: Record<AppRole, { icon: typeof Shield; className: string; label: string }> = {
-  admin: { icon: ShieldCheck, className: "border-primary/50 bg-primary/10 text-primary", label: "Admin" },
-  trader: { icon: Shield, className: "border-success/40 bg-success/10 text-success", label: "Trader" },
-  viewer: { icon: ShieldOff, className: "border-muted-foreground/30 bg-muted text-muted-foreground", label: "Viewer" },
+  admin: {
+    icon: ShieldCheck,
+    className: "border-primary/50 bg-primary/10 text-primary",
+    label: "Admin",
+  },
+  trader: {
+    icon: Shield,
+    className: "border-success/40 bg-success/10 text-success",
+    label: "Trader",
+  },
+  viewer: {
+    icon: ShieldOff,
+    className: "border-muted-foreground/30 bg-muted text-muted-foreground",
+    label: "Viewer",
+  },
 };
 
 export function RoleBadge() {
