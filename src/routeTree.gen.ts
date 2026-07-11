@@ -20,6 +20,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiRpcRouteImport } from './routes/api/rpc'
 import { Route as ApiDiscoveryRouteImport } from './routes/api/discovery'
 import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
+import { Route as ApiWebhooksHeliusPoolDiscoveryRouteImport } from './routes/api/webhooks/helius-pool-discovery'
 import { Route as ApiRugcheckMintRouteImport } from './routes/api/rugcheck.$mint'
 import { Route as ApiJupiterSwapRouteImport } from './routes/api/jupiter/swap'
 import { Route as ApiJupiterQuoteRouteImport } from './routes/api/jupiter/quote'
@@ -79,6 +80,12 @@ const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
   path: '/api/dexscreener',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksHeliusPoolDiscoveryRoute =
+  ApiWebhooksHeliusPoolDiscoveryRouteImport.update({
+    id: '/api/webhooks/helius-pool-discovery',
+    path: '/api/webhooks/helius-pool-discovery',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiRugcheckMintRoute = ApiRugcheckMintRouteImport.update({
   id: '/api/rugcheck/$mint',
   path: '/api/rugcheck/$mint',
@@ -110,6 +117,7 @@ export interface FileRoutesByFullPath {
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
   '/api/rugcheck/$mint': typeof ApiRugcheckMintRoute
+  '/api/webhooks/helius-pool-discovery': typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -126,6 +134,7 @@ export interface FileRoutesByTo {
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
   '/api/rugcheck/$mint': typeof ApiRugcheckMintRoute
+  '/api/webhooks/helius-pool-discovery': typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -143,6 +152,7 @@ export interface FileRoutesById {
   '/api/jupiter/quote': typeof ApiJupiterQuoteRoute
   '/api/jupiter/swap': typeof ApiJupiterSwapRoute
   '/api/rugcheck/$mint': typeof ApiRugcheckMintRoute
+  '/api/webhooks/helius-pool-discovery': typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
     | '/api/rugcheck/$mint'
+    | '/api/webhooks/helius-pool-discovery'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
     | '/api/rugcheck/$mint'
+    | '/api/webhooks/helius-pool-discovery'
   id:
     | '__root__'
     | '/'
@@ -193,6 +205,7 @@ export interface FileRouteTypes {
     | '/api/jupiter/quote'
     | '/api/jupiter/swap'
     | '/api/rugcheck/$mint'
+    | '/api/webhooks/helius-pool-discovery'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -210,6 +223,7 @@ export interface RootRouteChildren {
   ApiJupiterQuoteRoute: typeof ApiJupiterQuoteRoute
   ApiJupiterSwapRoute: typeof ApiJupiterSwapRoute
   ApiRugcheckMintRoute: typeof ApiRugcheckMintRoute
+  ApiWebhooksHeliusPoolDiscoveryRoute: typeof ApiWebhooksHeliusPoolDiscoveryRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -291,6 +305,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDexscreenerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/webhooks/helius-pool-discovery': {
+      id: '/api/webhooks/helius-pool-discovery'
+      path: '/api/webhooks/helius-pool-discovery'
+      fullPath: '/api/webhooks/helius-pool-discovery'
+      preLoaderRoute: typeof ApiWebhooksHeliusPoolDiscoveryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/rugcheck/$mint': {
       id: '/api/rugcheck/$mint'
       path: '/api/rugcheck/$mint'
@@ -330,6 +351,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiJupiterQuoteRoute: ApiJupiterQuoteRoute,
   ApiJupiterSwapRoute: ApiJupiterSwapRoute,
   ApiRugcheckMintRoute: ApiRugcheckMintRoute,
+  ApiWebhooksHeliusPoolDiscoveryRoute: ApiWebhooksHeliusPoolDiscoveryRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
