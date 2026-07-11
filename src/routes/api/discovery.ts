@@ -2,6 +2,31 @@ import { createFileRoute } from "@tanstack/react-router";
 import { evaluateMintSafety } from "@/lib/onchain-safety";
 import type { Json } from "@/integrations/supabase/types";
 
+interface DiscoveryRow {
+  mint: string;
+  lp_mint: string | null;
+  decimals: number;
+  venue: string;
+  symbol: string;
+  discovered_at: string;
+  safety_score: number | null;
+  liquidity_usd: number | null;
+  raw_payload?: Json;
+}
+
+interface DiscoveryQueryBuilder {
+  select(columns: string): this;
+  is(column: string, value: unknown): this;
+  order(column: string, opts: { ascending: boolean }): this;
+  limit(n: number): Promise<{ data: DiscoveryRow[] | null; error: { message: string } | null }>;
+  update(values: Partial<DiscoveryRow>): { eq(column: string, value: unknown): Promise<{ error: { message: string } | null }> };
+}
+
+interface AdminClient {
+  rpc(fn: string, args?: Record<string, unknown>): Promise<{ error: { message: string } | null }>;
+  from(table: "discovery_candidates"): DiscoveryQueryBuilder;
+}
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
