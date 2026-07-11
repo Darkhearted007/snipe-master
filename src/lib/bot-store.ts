@@ -883,28 +883,26 @@ export const useBotStore = create<BotState>()(
 
       setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => set({ discoveryCandidates: rows }),
 
-      requestLiveEntry: (opportunityId: string) => {
-        const s = get();
-        const opp = s.opportunities.find((o) => o.id === opportunityId);
-        if (!opp) return { ok: false, error: "Opportunity not found" };
-        if (s.mode !== "live") return { ok: false, error: "Not in live mode" };
-        if (s.guardrailBreached)
-          return { ok: false, error: "Guardrail breach active — resolve before trading" };
-        if (!s.walletConnected) return { ok: false, error: "Wallet not connected" };
-        if (!opp.mint) return { ok: false, error: "No mint address on this opportunity" };
-        if (opp.safety == null || opp.safety < s.safetyFilters.minSafety) {
-          return { ok: false, error: "Safety score missing or below threshold" };
-        }
-        if (s.guardrails.duplicateGuard && s.positions.some((p) => p.mint === opp.mint)) {
-          return { ok: false, error: "Already holding a position in this mint" };
-        }
-        const bankrollForSize = Math.max(0, s.bankroll);
-        if (bankrollForSize < 0.001) return { ok: false, error: "Bankroll too low" };
-        const sizeSol = s.guardrails.adaptiveSizing
-          ? Math.min(bankrollForSize * 0.2, bankrollForSize * 0.5)
-          : Math.min(s.guardrails.maxPositionSol, bankrollForSize * 0.5);
-        if (sizeSol <= 0) return { ok: false, error: "Computed size is zero" };
-        return { ok: true, sizeSol };
+      requestLiveEntry: (_opportunityId: string) => {
+        // HARD SAFETY GATE — do not remove without building a real sell-swap
+        // exit path first. closePosition() below is synthetic paper-math
+        // only (pnl computed from p.current - p.entry, credited to the
+        // in-app "bankroll" number) — it never executes a real sell. And
+        // tick()'s price-drift loop explicitly skips positions with
+        // live: true, so p.current never moves for a real position either.
+        // Net effect if this gate is removed without a real exit path: a
+        // real swap sends real SOL out of the wallet, and nothing in this
+        // app can ever sell it back — a one-way door for real money.
+        //
+        // The original gating logic (opportunity/mint checks, guardrail
+        // breach check, wallet-connected check, duplicate-position check,
+        // safety-score threshold, bankroll-based sizing) is preserved in
+        // git history on this line's prior version and should be restored
+        // alongside a real exit path, not reinvented from scratch.
+        return {
+          ok: false,
+          error: "Live entry disabled: no real exit path exists yet for live positions",
+        } as const;
       },
 
       // Called only after a real swap has been signed, sent, AND confirmed

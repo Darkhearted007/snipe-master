@@ -23,6 +23,7 @@ import { useWalletReady } from "@/lib/solana-provider";
 import { WalletBar } from "@/components/wallet-bar";
 import { useHasRole } from "@/hooks/use-auth-session";
 import { RoleBadge } from "@/components/role-badge";
+import { supabase } from "@/integrations/supabase/client";
 
 export function ControlHeader() {
   const walletReady = useWalletReady();
@@ -79,7 +80,7 @@ export function ControlHeader() {
         ? "Connect a wallet to start Live mode."
         : null;
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!canTrade) {
       toast.error("Read-only access", {
         description: "You need the trader or admin role to start the bot.",
@@ -89,6 +90,18 @@ export function ControlHeader() {
     if (startBlockedReason) {
       toast.error("Cannot start", { description: startBlockedReason });
       return;
+    }
+    // Proactively settle the session token before the burst of concurrent
+    // authenticated calls that start() triggers (settings/watchlist/log
+    // sync, discovery polling, live-executor checks). getSession() awaits
+    // any in-flight or needed refresh, so it completes serially here
+    // instead of racing multiple simultaneous refresh attempts a moment
+    // later — that race is what can cause a false "signed out" bounce
+    // back to the auth page right as trading starts.
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      /* best-effort — AuthGate's own re-check handles a genuine sign-out */
     }
     start();
     toast.success(`Bot running · ${mode.toUpperCase()}`);

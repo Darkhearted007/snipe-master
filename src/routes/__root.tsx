@@ -17,7 +17,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -35,6 +35,8 @@ import { useLiveExecutor } from "@/hooks/use-live-executor";
 import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
+import { supabase } from "@/integrations/supabase/client";
+import { logStructured } from "@/lib/structured-logger";
 
 function NotFoundComponent() {
   return (
@@ -201,9 +203,53 @@ function LiveExecutorMount() {
 function AuthGate({ children }: { children: ReactNode }) {
   const session = useAuthSession();
   const navigate = useNavigate();
+  // Only becomes true after a direct, explicit getSession() call confirms
+  // there is genuinely no session — never on the first SIGNED_OUT event
+  // alone. A burst of concurrent authenticated calls (settings/watchlist/
+  // log writes, discovery polling, live-executor checks — all of which
+  // fire together the moment the bot starts trading) can race a token
+  // refresh and cause a transient "already used" refresh-token rejection.
+  // Supabase's SDK treats that as SIGNED_OUT even though the session the
+  // browser is still holding may be perfectly valid a moment later. Take
+  // that event as a prompt to double-check, not as ground truth.
+  const [confirmedSignedOut, setConfirmedSignedOut] = useState(false);
+
   useEffect(() => {
-    if (session === null) navigate({ to: "/auth" });
-  }, [session, navigate]);
+    if (session !== null) {
+      setConfirmedSignedOut(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (data.session) {
+          // False alarm — the session is actually still there. Don't
+          // redirect; the next onAuthStateChange tick will reconcile the
+          // hook's state with reality.
+          logStructured(new Error("transient SIGNED_OUT event, session still valid"), {
+            category: "wallet",
+            severity: "info",
+            silent: true,
+            context: { op: "auth-gate-recheck" },
+          });
+          return;
+        }
+        if (!cancelled) setConfirmedSignedOut(true);
+      } catch {
+        if (!cancelled) setConfirmedSignedOut(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (confirmedSignedOut) navigate({ to: "/auth" });
+  }, [confirmedSignedOut, navigate]);
+
   if (session === undefined) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -211,6 +257,6 @@ function AuthGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (session === null) return null;
+  if (confirmedSignedOut) return null;
   return <>{children}</>;
 }
