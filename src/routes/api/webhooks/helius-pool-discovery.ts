@@ -92,7 +92,7 @@ export const Route = createFileRoute("/api/webhooks/helius-pool-discovery")({
           }),
         );
 
-        const { error } = await supabaseAdmin.from("discovery_candidates").upsert(
+        const { error } = await (supabaseAdmin as any).from("discovery_candidates").upsert(
           scored.map((c) => ({
             mint: c.mint,
             decimals: c.decimals,
