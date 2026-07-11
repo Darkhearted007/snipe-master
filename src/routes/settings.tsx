@@ -68,8 +68,7 @@ function SettingsPage() {
               <Button onClick={applyDeposit}>Apply</Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Minimum {MIN_USER_DEPOSIT_SOL} SOL. Applying resets session P&L.
-              Current bankroll:{" "}
+              Minimum {MIN_USER_DEPOSIT_SOL} SOL. Applying resets session P&L. Current bankroll:{" "}
               <span className="font-mono text-foreground">{bankroll.toFixed(5)} SOL</span>
             </p>
           </div>
@@ -97,17 +96,13 @@ function SettingsPage() {
             />
           </div>
           <div className="rounded-md border bg-muted/30 p-2 text-[10px]">
-            <div className="uppercase tracking-wider text-muted-foreground">
-              Treasury wallet
-            </div>
+            <div className="uppercase tracking-wider text-muted-foreground">Treasury wallet</div>
             <div className="mt-0.5 break-all font-mono">{PLATFORM_FEE_WALLET}</div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Fees apply to live-mode profitable exits only. Losses are not taxed.
-            Total routed this device:{" "}
-            <span className="font-mono text-foreground">
-              {totalFeesPaidSol.toFixed(5)} SOL
-            </span>
+            Fees apply to live-mode profitable exits only. Losses are not taxed. Total routed this
+            device:{" "}
+            <span className="font-mono text-foreground">{totalFeesPaidSol.toFixed(5)} SOL</span>
           </p>
         </CardContent>
       </Card>
@@ -143,10 +138,10 @@ function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-xs">
           <p className="text-muted-foreground">
-            State (watchlist, trade history, audit log, guardrails, wallet) is
-            persisted to <span className="font-mono">localStorage</span> under
-            key <span className="font-mono">sniperbot-state-v2</span>. Clearing
-            it below cannot be undone.
+            State (watchlist, trade history, audit log, guardrails, wallet) is persisted to{" "}
+            <span className="font-mono">localStorage</span> under key{" "}
+            <span className="font-mono">sniperbot-state-v2</span>. Clearing it below cannot be
+            undone.
           </p>
           <Button
             variant="outline"

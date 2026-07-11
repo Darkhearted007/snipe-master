@@ -22,13 +22,10 @@ export const Route = createFileRoute("/api/rpc")({
             : null);
 
         if (!upstreamUrl) {
-          return new Response(
-            JSON.stringify({ error: "RPC not configured" }),
-            {
-              status: 500,
-              headers: { "Content-Type": "application/json", ...CORS },
-            },
-          );
+          return new Response(JSON.stringify({ error: "RPC not configured" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json", ...CORS },
+          });
         }
 
         const body = await request.text();

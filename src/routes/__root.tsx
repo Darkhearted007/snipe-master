@@ -36,8 +36,6 @@ import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 
-
-
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -216,4 +214,3 @@ function AuthGate({ children }: { children: ReactNode }) {
   if (session === null) return null;
   return <>{children}</>;
 }
-

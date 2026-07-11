@@ -12,11 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useBotStore } from "@/lib/bot-store";
 import { cn } from "@/lib/utils";
@@ -78,8 +74,16 @@ function TradesPage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="flex flex-wrap gap-6 border-b px-4 py-3 text-xs">
-            <Kv label="Total P&L" value={fmtSol(totalPnl)} tone={totalPnl >= 0 ? "success" : "danger"} />
-            <Kv label="Net to wallet" value={fmtSol(totalNet)} tone={totalNet >= 0 ? "success" : "danger"} />
+            <Kv
+              label="Total P&L"
+              value={fmtSol(totalPnl)}
+              tone={totalPnl >= 0 ? "success" : "danger"}
+            />
+            <Kv
+              label="Net to wallet"
+              value={fmtSol(totalNet)}
+              tone={totalNet >= 0 ? "success" : "danger"}
+            />
             <Kv label="Fees routed" value={totalFees.toFixed(5) + " SOL"} tone="muted" />
           </div>
           <Table>
@@ -99,7 +103,10 @@ function TradesPage() {
             <TableBody>
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-10 text-center text-xs text-muted-foreground">
+                  <TableCell
+                    colSpan={9}
+                    className="py-10 text-center text-xs text-muted-foreground"
+                  >
                     No trades yet
                   </TableCell>
                 </TableRow>
@@ -112,7 +119,10 @@ function TradesPage() {
                   <TableCell>
                     <Badge
                       variant={t.mode === "live" ? "default" : "secondary"}
-                      className={cn("text-[10px]", t.mode === "live" && "bg-live text-live-foreground")}
+                      className={cn(
+                        "text-[10px]",
+                        t.mode === "live" && "bg-live text-live-foreground",
+                      )}
                     >
                       {t.mode.toUpperCase()}
                     </Badge>

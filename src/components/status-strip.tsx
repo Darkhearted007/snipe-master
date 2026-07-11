@@ -55,7 +55,10 @@ export function StatusStrip() {
         <span>uptime</span>
         <span className="font-mono text-foreground">{uptime}</span>
       </div>
-      <Badge variant={mode === "live" ? "default" : "secondary"} className={cn(mode === "live" && "bg-live text-live-foreground")}>
+      <Badge
+        variant={mode === "live" ? "default" : "secondary"}
+        className={cn(mode === "live" && "bg-live text-live-foreground")}
+      >
         {mode === "live" ? "LIVE" : "PAPER"}
       </Badge>
       <div className="flex items-center gap-1">
@@ -63,10 +66,7 @@ export function StatusStrip() {
           <Badge
             key={v}
             variant="outline"
-            className={cn(
-              "text-[10px] uppercase",
-              !activeVenues[v] && "opacity-40 line-through",
-            )}
+            className={cn("text-[10px] uppercase", !activeVenues[v] && "opacity-40 line-through")}
           >
             {v}
           </Badge>

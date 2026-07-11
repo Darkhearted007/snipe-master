@@ -75,9 +75,7 @@ function Stat({
     tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : "text-foreground";
   return (
     <div className="flex flex-col gap-0.5 rounded-md border bg-muted/30 px-2 py-1.5">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className={`font-mono text-sm font-semibold ${color}`}>{value}</span>
     </div>
   );

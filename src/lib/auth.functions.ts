@@ -44,10 +44,7 @@ export const verifySiws = createServerFn({ method: "POST" })
   .inputValidator((raw) => verifyInput.parse(raw))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const [{ default: nacl }, bs58Mod] = await Promise.all([
-      import("tweetnacl"),
-      import("bs58"),
-    ]);
+    const [{ default: nacl }, bs58Mod] = await Promise.all([import("tweetnacl"), import("bs58")]);
     const bs58 = (bs58Mod as unknown as { default: { decode(s: string): Uint8Array } }).default;
 
     // 1) claim nonce (single-use, unexpired)
@@ -60,10 +57,7 @@ export const verifySiws = createServerFn({ method: "POST" })
       .gt("expires_at", new Date().toISOString())
       .maybeSingle();
     if (nErr || !nonceRow) throw new Error("Invalid or expired nonce");
-    await supabaseAdmin
-      .from("auth_nonces")
-      .update({ consumed: true })
-      .eq("nonce", data.nonce);
+    await supabaseAdmin.from("auth_nonces").update({ consumed: true }).eq("nonce", data.nonce);
 
     // 2) verify signature
     const message = new TextEncoder().encode(
@@ -136,18 +130,15 @@ export const verifySiws = createServerFn({ method: "POST" })
     if (!hasRole("viewer")) {
       await supabaseAdmin.from("user_roles").insert({ user_id: userId, role: "viewer" });
     }
-    if (
-      bootstrapAdmin &&
-      bootstrapAdmin === data.walletAddress &&
-      !hasRole("admin")
-    ) {
-      await supabaseAdmin
-        .from("user_roles")
-        .insert({ user_id: userId, role: "admin" });
+    if (bootstrapAdmin && bootstrapAdmin === data.walletAddress && !hasRole("admin")) {
+      await supabaseAdmin.from("user_roles").insert({ user_id: userId, role: "admin" });
       await supabaseAdmin
         .from("user_roles")
         .insert({ user_id: userId, role: "trader" })
-        .then(() => {}, () => {});
+        .then(
+          () => {},
+          () => {},
+        );
     }
 
     // 4) mint magic-link token_hash for the browser to exchange

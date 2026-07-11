@@ -24,7 +24,6 @@ export default defineConfig({
         }),
         applyToEnvironment: (env) => env.name === "client",
       },
-
     ],
     resolve: {
       alias: [
@@ -33,10 +32,7 @@ export default defineConfig({
           // never opens a websocket (RPC subscriptions run in the browser
           // via /api/rpc), so alias it to a no-op stub.
           find: /^rpc-websockets$/,
-          replacement: path.resolve(
-            __dirname,
-            "src/vendor/rpc-websockets-stub.ts",
-          ),
+          replacement: path.resolve(__dirname, "src/vendor/rpc-websockets-stub.ts"),
         },
       ],
     },

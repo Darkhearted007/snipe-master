@@ -14,12 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,18 +93,12 @@ function bucketize(
       ts,
       label: format(new Date(ts), span > 6 * 60 * 60_000 ? "HH:mm" : "HH:mm:ss"),
       total: 0,
-      byType: Object.fromEntries(ALL_TYPES.map((t) => [t, 0])) as Record<
-        DecisionType,
-        number
-      >,
+      byType: Object.fromEntries(ALL_TYPES.map((t) => [t, 0])) as Record<DecisionType, number>,
     };
   });
   for (const e of entries) {
     if (e.ts < start) continue;
-    const idx = Math.min(
-      buckets - 1,
-      Math.max(0, Math.floor((e.ts - start) / width)),
-    );
+    const idx = Math.min(buckets - 1, Math.max(0, Math.floor((e.ts - start) / width)));
     slots[idx].total += 1;
     slots[idx].byType[e.type] += 1;
   }
@@ -120,24 +109,17 @@ function LogsPage() {
   const log = useBotStore((s) => s.log);
   const [q, setQ] = useState("");
   const [range, setRange] = useState<RangeKey>("1h");
-  const [types, setTypes] = useState<Set<DecisionType>>(
-    new Set(ALL_TYPES),
-  );
+  const [types, setTypes] = useState<Set<DecisionType>>(new Set(ALL_TYPES));
 
   const rangeMs = RANGES[range];
   const cutoff = Date.now() - rangeMs;
 
-  const inRange = useMemo(
-    () => log.filter((l) => l.ts >= cutoff),
-    [log, cutoff],
-  );
+  const inRange = useMemo(() => log.filter((l) => l.ts >= cutoff), [log, cutoff]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return inRange.filter(
-      (l) =>
-        types.has(l.type) &&
-        (!needle || l.summary.toLowerCase().includes(needle)),
+      (l) => types.has(l.type) && (!needle || l.summary.toLowerCase().includes(needle)),
     );
   }, [inRange, types, q]);
 
@@ -169,10 +151,7 @@ function LogsPage() {
     return buckets;
   }, [filtered]);
 
-  const confidenceSamples = confidenceBuckets.reduce(
-    (a, b) => a + b.count,
-    0,
-  );
+  const confidenceSamples = confidenceBuckets.reduce((a, b) => a + b.count, 0);
 
   // 3. Learning feedback timeline — count of `learning` events per bucket.
   const learningSeries = useMemo(
@@ -187,10 +166,7 @@ function LogsPage() {
 
   // ---- Counters -----------------------------------------------------------
   const counts = useMemo(() => {
-    const c = Object.fromEntries(ALL_TYPES.map((t) => [t, 0])) as Record<
-      DecisionType,
-      number
-    >;
+    const c = Object.fromEntries(ALL_TYPES.map((t) => [t, 0])) as Record<DecisionType, number>;
     for (const e of inRange) c[e.type] += 1;
     return c;
   }, [inRange]);
@@ -209,9 +185,7 @@ function LogsPage() {
       {/* --- Filter bar ---------------------------------------------------- */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">
-            Decision & learning review
-          </CardTitle>
+          <CardTitle className="text-sm font-medium">Decision & learning review</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -280,8 +254,7 @@ function LogsPage() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            {filtered.length} of {inRange.length} events in {range} · {log.length}{" "}
-            total in memory
+            {filtered.length} of {inRange.length} events in {range} · {log.length} total in memory
           </p>
         </CardContent>
       </Card>
@@ -290,9 +263,7 @@ function LogsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
-              Event volume by type
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Event volume by type</CardTitle>
           </CardHeader>
           <CardContent className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -335,7 +306,10 @@ function LogsPage() {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={confidenceBuckets} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <BarChart
+                  data={confidenceBuckets}
+                  margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                   <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
@@ -353,11 +327,7 @@ function LogsPage() {
                         // 0-49 red-ish, 50-69 amber, 70+ green — matches the
                         // simulator's execution threshold at 55%.
                         fill={
-                          i < 5
-                            ? "hsl(0 70% 55%)"
-                            : i < 7
-                              ? "hsl(45 90% 55%)"
-                              : "hsl(150 65% 50%)"
+                          i < 5 ? "hsl(0 70% 55%)" : i < 7 ? "hsl(45 90% 55%)" : "hsl(150 65% 50%)"
                         }
                       />
                     ))}
@@ -371,9 +341,7 @@ function LogsPage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">
-            Learning feedback updates over time
-          </CardTitle>
+          <CardTitle className="text-sm font-medium">Learning feedback updates over time</CardTitle>
         </CardHeader>
         <CardContent className="h-56">
           <ResponsiveContainer width="100%" height="100%">
@@ -423,10 +391,7 @@ function LogsPage() {
               {filtered.slice(0, 500).map((e) => {
                 const c = extractConfidence(e.summary);
                 return (
-                  <tr
-                    key={e.id}
-                    className="border-t border-border/50 hover:bg-muted/30"
-                  >
+                  <tr key={e.id} className="border-t border-border/50 hover:bg-muted/30">
                     <td className="px-3 py-1.5 text-muted-foreground">
                       {format(new Date(e.ts), "HH:mm:ss")}
                     </td>
@@ -450,10 +415,7 @@ function LogsPage() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={4}
-                    className="px-3 py-8 text-center text-muted-foreground"
-                  >
+                  <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
                     No events match the current filters.
                   </td>
                 </tr>

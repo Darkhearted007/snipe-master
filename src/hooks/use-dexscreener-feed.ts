@@ -24,10 +24,9 @@ export interface DexBoost extends DexTokenProfile {
 }
 
 async function fetchFeed<T>(feed: DexFeed): Promise<T[]> {
-  const res = await fetch(
-    `/api/dexscreener?feed=${encodeURIComponent(feed)}`,
-    { headers: { accept: "application/json" } },
-  );
+  const res = await fetch(`/api/dexscreener?feed=${encodeURIComponent(feed)}`, {
+    headers: { accept: "application/json" },
+  });
   if (!res.ok) throw new Error(`DexScreener ${feed} → ${res.status}`);
   const data = (await res.json()) as unknown;
   // The DexScreener endpoints return either an array or an object with error.

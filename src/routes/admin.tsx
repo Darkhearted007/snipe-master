@@ -5,13 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, ShieldAlert, ShieldCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { listAdminUsers, grantRole, revokeRole } from "@/lib/admin.functions";
@@ -49,8 +43,8 @@ function AdminPage() {
           <ShieldAlert className="h-4 w-4" />
           <AlertTitle>Admin only</AlertTitle>
           <AlertDescription className="text-xs">
-            Your wallet does not have the admin role. Ask an existing admin to
-            promote you, or sign in with the bootstrap wallet.
+            Your wallet does not have the admin role. Ask an existing admin to promote you, or sign
+            in with the bootstrap wallet.
           </AlertDescription>
         </Alert>
       </div>
@@ -74,8 +68,8 @@ function UsersPanel({ currentUserId }: { currentUserId: string }) {
         <div>
           <h1 className="text-lg font-semibold">User & Role Management</h1>
           <p className="text-xs text-muted-foreground">
-            Grant <span className="font-mono">trader</span> to allow live-mode
-            control, or <span className="font-mono">admin</span> for full access.
+            Grant <span className="font-mono">trader</span> to allow live-mode control, or{" "}
+            <span className="font-mono">admin</span> for full access.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => q.refetch()}>
@@ -93,9 +87,7 @@ function UsersPanel({ currentUserId }: { currentUserId: string }) {
       {q.isError && (
         <Alert variant="destructive">
           <AlertTitle>Failed to load users</AlertTitle>
-          <AlertDescription className="text-xs">
-            {(q.error as Error).message}
-          </AlertDescription>
+          <AlertDescription className="text-xs">{(q.error as Error).message}</AlertDescription>
         </Alert>
       )}
 

@@ -96,10 +96,7 @@ export async function executeSwap(input: {
     maxRetries: 3,
   });
   const latest = await input.connection.getLatestBlockhash();
-  await input.connection.confirmTransaction(
-    { signature: sig, ...latest },
-    "confirmed",
-  );
+  await input.connection.confirmTransaction({ signature: sig, ...latest }, "confirmed");
   return { signature: sig, quote };
 }
 
@@ -141,9 +138,6 @@ export async function sendSolTransfer(input: {
     skipPreflight: false,
     maxRetries: 3,
   });
-  await input.connection.confirmTransaction(
-    { signature: sig, ...latest },
-    "confirmed",
-  );
+  await input.connection.confirmTransaction({ signature: sig, ...latest }, "confirmed");
   return sig;
 }

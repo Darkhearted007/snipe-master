@@ -33,7 +33,6 @@ function useSessionReady(): boolean {
   return ready;
 }
 
-
 async function hasSession(): Promise<boolean> {
   try {
     const { data } = await supabase.auth.getSession();
@@ -58,7 +57,9 @@ function isNoSession(e: unknown): boolean {
 /** Hard-guard wrapper: every persistence serverFn is routed through this.
  *  If there is no Supabase session at call time, the serverFn is never
  *  invoked. */
-function guarded<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+function guarded<A extends unknown[], R>(
+  fn: (...args: A) => Promise<R>,
+): (...args: A) => Promise<R> {
   return async (...args: A) => {
     if (!(await hasSession())) throw new NoSessionError();
     return fn(...args);
@@ -94,16 +95,12 @@ function retryWrite<T>(op: () => Promise<T>, label: string) {
         category: "persistence",
         severity: attempt >= 3 ? "warning" : "info",
         silent: attempt < 3,
-        userMessage:
-          attempt >= 3
-            ? `Cloud sync failing (${label}) — retrying`
-            : undefined,
+        userMessage: attempt >= 3 ? `Cloud sync failing (${label}) — retrying` : undefined,
         context: { op: label, attempt, delayMs },
       });
     },
   });
 }
-
 
 /** Bidirectional sync between the bot store and Lovable Cloud.
  *  Hydrates once on mount; debounces settings/watchlist writes; flushes new
@@ -129,7 +126,10 @@ export function useServerPersistence(enabledProp: boolean) {
     if (!enabled || hydrated.current) return;
     hydrated.current = true;
     (async () => {
-      if (!(await hasSession())) { hydrated.current = false; return; }
+      if (!(await hasSession())) {
+        hydrated.current = false;
+        return;
+      }
       try {
         const payload = (await retryWrite(() => load(), "hydrate")) as LoadedState;
         useBotStore.getState().hydrateFromServer({
@@ -143,7 +143,10 @@ export function useServerPersistence(enabledProp: boolean) {
         lastLogId.current = logs[0]?.id ?? null;
         lastTradeId.current = trades[0]?.id ?? null;
       } catch (e) {
-        if (isUnauthorized(e) || isNoSession(e)) { hydrated.current = false; return; }
+        if (isUnauthorized(e) || isNoSession(e)) {
+          hydrated.current = false;
+          return;
+        }
         logStructured(e, {
           category: "persistence",
           severity: "error",
@@ -151,7 +154,6 @@ export function useServerPersistence(enabledProp: boolean) {
           context: { op: "hydrate", final: true },
         });
       }
-
     })();
   }, [enabled, load]);
 
@@ -175,7 +177,6 @@ export function useServerPersistence(enabledProp: boolean) {
             context: { op: "settings save", final: true },
           });
         });
-
       }, 800) as unknown as number;
     });
     return () => {
@@ -211,7 +212,6 @@ export function useServerPersistence(enabledProp: boolean) {
             context: { op: "watchlist save", final: true },
           });
         });
-
       }, 1500) as unknown as number;
     });
     return () => {
@@ -291,11 +291,9 @@ export function useServerPersistence(enabledProp: boolean) {
             context: { op: "trade insert", final: true, tradeId: t.id },
           });
         }
-
       }
       lastTradeId.current = s.tradeHistory[0]?.id ?? lastTradeId.current;
     }, 3_000);
     return () => window.clearInterval(iv);
   }, [enabled, flushLogs, flushTrade]);
 }
-

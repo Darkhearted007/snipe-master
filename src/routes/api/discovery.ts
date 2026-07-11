@@ -22,9 +22,7 @@ export const Route = createFileRoute("/api/discovery")({
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         // Best-effort prune; don't fail the read if it errors.
-        const pruneResult = await (supabaseAdmin as any).rpc(
-          "prune_stale_discovery_candidates",
-        );
+        const pruneResult = await (supabaseAdmin as any).rpc("prune_stale_discovery_candidates");
         if (pruneResult.error) {
           console.error("[discovery] prune failed", pruneResult.error);
         }

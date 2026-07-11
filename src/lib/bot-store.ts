@@ -199,11 +199,7 @@ interface BotState {
   ) => { ok: true; sizeSol: number } | { ok: false; error: string };
 
   /** Record a confirmed on-chain live entry as an open position. */
-  confirmLiveEntry: (input: {
-    opportunityId: string;
-    sizeSol: number;
-    signature: string;
-  }) => void;
+  confirmLiveEntry: (input: { opportunityId: string; sizeSol: number; signature: string }) => void;
 
   /** Record a failed live entry attempt. */
   failLiveEntry: (input: { opportunityId: string; reason: string }) => void;
@@ -885,8 +881,7 @@ export const useBotStore = create<BotState>()(
         set({ lastHealthAt: Date.now() });
       },
 
-      setDiscoveryCandidates: (rows: DiscoveryCandidate[]) =>
-        set({ discoveryCandidates: rows }),
+      setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => set({ discoveryCandidates: rows }),
 
       requestLiveEntry: (opportunityId: string) => {
         const s = get();
@@ -956,13 +951,7 @@ export const useBotStore = create<BotState>()(
           };
         }),
 
-      failLiveEntry: ({
-        opportunityId,
-        reason,
-      }: {
-        opportunityId: string;
-        reason: string;
-      }) =>
+      failLiveEntry: ({ opportunityId, reason }: { opportunityId: string; reason: string }) =>
         set((s) => {
           const opp = s.opportunities.find((o) => o.id === opportunityId);
           return {

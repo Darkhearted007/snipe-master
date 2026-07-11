@@ -14,11 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import {
   Table,
@@ -29,7 +25,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Filter, Loader2, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Filter,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useBotStore } from "@/lib/bot-store";
 import type { Venue, WatchSource } from "@/lib/bot-types";
 import { cn } from "@/lib/utils";
@@ -123,15 +128,13 @@ function WatchlistPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              When enabled, the strategy engine adds tokens that pass the safety
-              filter to the watchlist as{" "}
-              <Badge variant="outline" className="text-[10px]">auto</Badge>{" "}
-              candidates. After {AUTO_PROMOTE_STREAK} consecutive positive
-              decisions you can promote them to{" "}
-              <Badge className="bg-live text-live-foreground text-[10px]">
-                manual
-              </Badge>
-              .
+              When enabled, the strategy engine adds tokens that pass the safety filter to the
+              watchlist as{" "}
+              <Badge variant="outline" className="text-[10px]">
+                auto
+              </Badge>{" "}
+              candidates. After {AUTO_PROMOTE_STREAK} consecutive positive decisions you can promote
+              them to <Badge className="bg-live text-live-foreground text-[10px]">manual</Badge>.
             </p>
             <div className="flex items-center justify-between rounded-md border bg-muted/30 p-2 text-xs">
               <span className="text-muted-foreground">
@@ -185,9 +188,7 @@ function WatchlistPage() {
               max={80}
               step={5}
               suffix="%"
-              onChange={(v) =>
-                setSafetyFilters({ maxHolderConcentrationPct: v })
-              }
+              onChange={(v) => setSafetyFilters({ maxHolderConcentrationPct: v })}
             />
             <div className="grid grid-cols-2 gap-2 pt-1">
               <Toggle
@@ -245,8 +246,7 @@ function WatchlistPage() {
             <Button onClick={handleAdd}>Add</Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Manual entries bypass auto-curation but still pass the safety filter
-            above.
+            Manual entries bypass auto-curation but still pass the safety filter above.
           </p>
           <MintSafetyPreview mint={mintAddress} />
         </CardContent>
@@ -292,25 +292,17 @@ function WatchlistPage() {
                     colSpan={8}
                     className="py-10 text-center text-xs text-muted-foreground"
                   >
-                    Empty · add a token above or enable automated curation and
-                    start the bot
+                    Empty · add a token above or enable automated curation and start the bot
                   </TableCell>
                 </TableRow>
               )}
               {filtered.map((w) => {
-                const canPromote =
-                  w.source === "auto" && w.positiveStreak >= AUTO_PROMOTE_STREAK;
+                const canPromote = w.source === "auto" && w.positiveStreak >= AUTO_PROMOTE_STREAK;
                 return (
                   <TableRow key={w.id}>
                     <TableCell>
-                      <div className="font-mono text-sm font-semibold">
-                        {w.symbol}
-                      </div>
-                      {w.note && (
-                        <div className="text-[10px] text-muted-foreground">
-                          {w.note}
-                        </div>
-                      )}
+                      <div className="font-mono text-sm font-semibold">{w.symbol}</div>
+                      {w.note && <div className="text-[10px] text-muted-foreground">{w.note}</div>}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-[10px] uppercase">
@@ -326,12 +318,7 @@ function WatchlistPage() {
                         <Badge variant="secondary">manual</Badge>
                       )}
                     </TableCell>
-                    <TableCell
-                      className={cn(
-                        "text-right font-mono text-xs",
-                        scoreTone(w.safety),
-                      )}
-                    >
+                    <TableCell className={cn("text-right font-mono text-xs", scoreTone(w.safety))}>
                       {w.safety}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
@@ -349,10 +336,7 @@ function WatchlistPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Switch
-                        checked={w.enabled}
-                        onCheckedChange={() => toggleWatch(w.id)}
-                      />
+                      <Switch checked={w.enabled} onCheckedChange={() => toggleWatch(w.id)} />
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -406,9 +390,7 @@ function Kpi({
     <Card>
       <CardContent className="flex items-center justify-between p-4">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            {label}
-          </div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
           <div className="font-mono text-2xl font-semibold">{value}</div>
         </div>
         {hint && (
@@ -553,9 +535,7 @@ function MintSafetyPreview({ mint }: { mint: string }) {
           <span className="uppercase tracking-wide">Rugcheck: {v.verdict}</span>
           {v.symbol && <span className="text-muted-foreground">· {v.symbol}</span>}
         </div>
-        <div className="font-mono">
-          Score {v.score ?? "—"}/100
-        </div>
+        <div className="font-mono">Score {v.score ?? "—"}/100</div>
       </div>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px] text-foreground/80 sm:grid-cols-4">
@@ -618,4 +598,3 @@ function AuthBadge({ label, revoked }: { label: string; revoked: boolean }) {
 function rankLevel(l: string) {
   return l === "danger" || l === "high" ? 3 : l === "warn" || l === "medium" ? 2 : 1;
 }
-

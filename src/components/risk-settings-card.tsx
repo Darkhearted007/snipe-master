@@ -25,10 +25,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
     0,
     ((startBankroll - bankroll) / Math.max(startBankroll, 1e-9)) * 100,
   );
-  const drawdownPct = Math.max(
-    0,
-    ((peakBankroll - bankroll) / Math.max(peakBankroll, 1e-9)) * 100,
-  );
+  const drawdownPct = Math.max(0, ((peakBankroll - bankroll) / Math.max(peakBankroll, 1e-9)) * 100);
 
   const adaptive = guardrails.adaptiveSizing;
   const sizeUsedPct = adaptive
@@ -57,9 +54,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
               <Sparkles className="h-3.5 w-3.5 text-warning" />
               Agent-decided position size
               {adaptive && (
-                <Badge className="bg-live text-live-foreground text-[10px]">
-                  adaptive
-                </Badge>
+                <Badge className="bg-live text-live-foreground text-[10px]">adaptive</Badge>
               )}
             </Label>
             <Switch
@@ -69,8 +64,8 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
             />
           </div>
           <p className="text-[11px] text-muted-foreground">
-            When on, agent sizes 5–40% of bankroll from confidence × safety and
-            ignores the manual cap below.
+            When on, agent sizes 5–40% of bankroll from confidence × safety and ignores the manual
+            cap below.
           </p>
 
           <div className="grid grid-cols-[1fr_auto] items-center gap-2">
@@ -98,9 +93,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
               min={0.005}
               value={guardrails.maxPositionSol}
               disabled={adaptive}
-              onChange={(e) =>
-                setGuardrails({ maxPositionSol: Number(e.target.value) || 0 })
-              }
+              onChange={(e) => setGuardrails({ maxPositionSol: Number(e.target.value) || 0 })}
               className="w-24 font-mono text-xs"
             />
           </div>
@@ -109,8 +102,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
               <Progress value={sizeUsedPct} className="h-1" />
               <div className="flex justify-between text-[10px] text-muted-foreground">
                 <span>
-                  Largest open:{" "}
-                  <span className="font-mono">{largest.toFixed(4)} SOL</span>
+                  Largest open: <span className="font-mono">{largest.toFixed(4)} SOL</span>
                 </span>
                 <span className="font-mono">{sizeUsedPct.toFixed(0)}% of cap</span>
               </div>
@@ -122,9 +114,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
         <section className="space-y-2 border-t pt-4">
           <div className="flex items-center justify-between">
             <Label className="text-xs">Daily-loss fail-safe</Label>
-            <span className="font-mono text-xs">
-              {guardrails.dailyLossLimitPct}%
-            </span>
+            <span className="font-mono text-xs">{guardrails.dailyLossLimitPct}%</span>
           </div>
           <Slider
             value={[guardrails.dailyLossLimitPct]}
@@ -141,8 +131,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
               )}
               className={cn(
                 "h-1",
-                dailyLossPct >= guardrails.dailyLossLimitPct &&
-                  "[&>div]:bg-destructive",
+                dailyLossPct >= guardrails.dailyLossLimitPct && "[&>div]:bg-destructive",
               )}
             />
             <div className="flex justify-between text-[10px] text-muted-foreground">
@@ -151,8 +140,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
                 <span
                   className={cn(
                     "font-mono",
-                    dailyLossPct >= guardrails.dailyLossLimitPct &&
-                      "text-destructive",
+                    dailyLossPct >= guardrails.dailyLossLimitPct && "text-destructive",
                   )}
                 >
                   −{dailyLossPct.toFixed(2)}%
@@ -167,9 +155,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
         <section className="space-y-2 border-t pt-4">
           <div className="flex items-center justify-between">
             <Label className="text-xs">Drawdown limit (from peak)</Label>
-            <span className="font-mono text-xs">
-              {guardrails.drawdownLimitPct}%
-            </span>
+            <span className="font-mono text-xs">{guardrails.drawdownLimitPct}%</span>
           </div>
           <Slider
             value={[guardrails.drawdownLimitPct]}
@@ -180,14 +166,10 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
           />
           <div className="space-y-0.5">
             <Progress
-              value={Math.min(
-                100,
-                (drawdownPct / Math.max(guardrails.drawdownLimitPct, 1)) * 100,
-              )}
+              value={Math.min(100, (drawdownPct / Math.max(guardrails.drawdownLimitPct, 1)) * 100)}
               className={cn(
                 "h-1",
-                drawdownPct >= guardrails.drawdownLimitPct &&
-                  "[&>div]:bg-destructive",
+                drawdownPct >= guardrails.drawdownLimitPct && "[&>div]:bg-destructive",
               )}
             />
             <div className="flex justify-between text-[10px] text-muted-foreground">
@@ -196,8 +178,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
                 <span
                   className={cn(
                     "font-mono",
-                    drawdownPct >= guardrails.drawdownLimitPct &&
-                      "text-destructive",
+                    drawdownPct >= guardrails.drawdownLimitPct && "text-destructive",
                   )}
                 >
                   −{drawdownPct.toFixed(2)}%
@@ -230,9 +211,7 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
         {breached && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-destructive">
-                A guardrail breached — bot halted.
-              </span>
+              <span className="text-destructive">A guardrail breached — bot halted.</span>
               <Button
                 size="sm"
                 variant="outline"

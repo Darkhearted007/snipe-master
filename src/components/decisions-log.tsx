@@ -66,9 +66,7 @@ export function DecisionsLog({ limit = 30 }: { limit?: number }) {
         <div className="max-h-96 overflow-auto">
           <ul className="divide-y">
             {visible.length === 0 && (
-              <li className="py-8 text-center text-xs text-muted-foreground">
-                Log empty
-              </li>
+              <li className="py-8 text-center text-xs text-muted-foreground">Log empty</li>
             )}
             {visible.map((l) => (
               <li
