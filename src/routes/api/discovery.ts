@@ -45,7 +45,7 @@ export const Route = createFileRoute("/api/discovery")({
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
       GET: async () => {
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const admin = supabaseAdmin as AdminClient;
+        const admin = supabaseAdmin as unknown as AdminClient;
 
         // Best-effort prune; don't fail the read if it errors.
         const pruneResult = await admin.rpc("prune_stale_discovery_candidates");
