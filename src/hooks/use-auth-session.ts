@@ -10,20 +10,43 @@ export function useAuthSession() {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (mounted) setSession(data.session ?? null);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+    let settled = false;
+    const settle = (s: Session | null) => {
+      if (!mounted || settled) return;
+      settled = true;
       setSession(s);
+    };
+
+    supabase.auth
+      .getSession()
+      .then(({ data }) => settle(data.session ?? null))
+      .catch((err) => {
+        console.warn("[auth] getSession failed", err);
+        settle(null);
+      });
+
+    // Safety net: never leave the app stuck on "Loading session…"
+    const to = window.setTimeout(() => {
+      if (!settled) {
+        console.warn("[auth] getSession timed out; treating as signed out");
+        settle(null);
+      }
+    }, 3000);
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      settled = true;
+      if (mounted) setSession(s);
     });
     return () => {
       mounted = false;
+      window.clearTimeout(to);
       sub.subscription.unsubscribe();
     };
   }, []);
 
   return session; // undefined = loading, null = signed out, Session = signed in
 }
+
 
 export function useCurrentRoles(userId: string | undefined) {
   return useQuery({
