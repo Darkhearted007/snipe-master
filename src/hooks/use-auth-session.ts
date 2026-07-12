@@ -47,7 +47,6 @@ export function useAuthSession() {
   return session; // undefined = loading, null = signed out, Session = signed in
 }
 
-
 export function useCurrentRoles(userId: string | undefined) {
   return useQuery({
     queryKey: ["roles", userId],
