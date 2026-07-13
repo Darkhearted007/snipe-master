@@ -16,6 +16,13 @@ import type {
   WatchSource,
 } from "./bot-types";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "./bot-types";
+import {
+  buildDebrief,
+  scoutBiasForToken,
+  DEBRIEF_TRADE_WINDOW,
+  MAX_COUNCIL_MEMORY,
+  type CouncilMemoryEntry,
+} from "./council";
 
 const MAX_FEED = 40;
 const MAX_LOG = 300;
