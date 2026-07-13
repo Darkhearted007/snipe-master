@@ -5,38 +5,87 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type AppRole = "viewer" | "trader" | "admin";
 
+/**
+ * Session hook with sticky semantics.
+ *
+ * Design contract: once we have observed a valid session, we treat it as
+ * sticky. Transient `null`s produced by token-refresh races (SIGNED_OUT
+ * events fired mid-refresh when many parallel authenticated calls collide)
+ * MUST NOT bounce the operator back to the sign-in page while the bot is
+ * running. Only the explicit `SIGNED_OUT` event that follows an actual
+ * `supabase.auth.signOut()` call, or a fresh mount that never sees a
+ * session, is allowed to resolve to `null`.
+ *
+ * Returns:
+ *   undefined = still loading (first check hasn't resolved)
+ *   null      = definitively signed out
+ *   Session   = signed in (sticky — persists across transient refresh nulls)
+ */
 export function useAuthSession() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
 
   useEffect(() => {
     let mounted = true;
-    let settled = false;
-    const settle = (s: Session | null) => {
-      if (!mounted || settled) return;
-      settled = true;
+    let initialResolved = false;
+    let lastKnown: Session | null = null;
+
+    const commit = (s: Session | null) => {
+      if (!mounted) return;
+      if (s) lastKnown = s;
       setSession(s);
     };
 
     supabase.auth
       .getSession()
-      .then(({ data }) => settle(data.session ?? null))
+      .then(({ data }) => {
+        if (!mounted) return;
+        initialResolved = true;
+        commit(data.session ?? null);
+      })
       .catch((err) => {
         console.warn("[auth] getSession failed", err);
-        settle(null);
+        if (!mounted) return;
+        initialResolved = true;
+        commit(null);
       });
 
-    // Safety net: never leave the app stuck on "Loading session…"
+    // Safety net: never leave the UI stuck on "Loading session…"
     const to = window.setTimeout(() => {
-      if (!settled) {
-        console.warn("[auth] getSession timed out; treating as signed out");
-        settle(null);
+      if (!initialResolved && mounted) {
+        console.warn("[auth] getSession slow; provisionally treating as signed out");
+        initialResolved = true;
+        commit(null);
       }
-    }, 3000);
+    }, 4000);
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      settled = true;
-      if (mounted) setSession(s);
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (!mounted) return;
+      initialResolved = true;
+
+      // Explicit sign-out event — always honored.
+      if (event === "SIGNED_OUT") {
+        lastKnown = null;
+        commit(null);
+        return;
+      }
+
+      // Any other event that carries a session is authoritative.
+      if (s) {
+        commit(s);
+        return;
+      }
+
+      // Event without a session and it's NOT SIGNED_OUT. This is the
+      // transient token-refresh race. If we've ever held a valid session,
+      // ignore the null and keep the UI signed-in; the next event will
+      // reconcile.
+      if (lastKnown) {
+        console.debug("[auth] ignoring transient null on", event);
+        return;
+      }
+      commit(null);
     });
+
     return () => {
       mounted = false;
       window.clearTimeout(to);
