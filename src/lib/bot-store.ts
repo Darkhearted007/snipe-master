@@ -654,6 +654,33 @@ export const useBotStore = create<BotState>()(
             feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
             settlementStatus: fee > 0 ? "pending" : "n/a",
           };
+          // Feed the Auditor: manual closes count toward the debrief window.
+          let cycleClosedTrades = [...s.cycleClosedTrades, entry];
+          let councilMemory = s.councilMemory;
+          let councilCycleId = s.councilCycleId;
+          let tradesSinceDebrief = s.tradesSinceDebrief + 1;
+          let cyclePnlDelta = s.cyclePnlDelta + entry.netToUserSol;
+          const councilLogs: DecisionLogEntry[] = [];
+          while (tradesSinceDebrief >= DEBRIEF_TRADE_WINDOW) {
+            const windowTrades = cycleClosedTrades.slice(0, DEBRIEF_TRADE_WINDOW);
+            const debrief = buildDebrief({ cycleId: councilCycleId, windowTrades });
+            councilMemory = [debrief, ...councilMemory].slice(0, MAX_COUNCIL_MEMORY);
+            councilLogs.push({
+              id: id(),
+              ts: Date.now(),
+              type: "learning",
+              summary: debrief.summary,
+            });
+            try {
+              s.onCouncilAppend?.(debrief);
+            } catch (e) {
+              console.warn("[council] append handler failed", e);
+            }
+            cycleClosedTrades = cycleClosedTrades.slice(DEBRIEF_TRADE_WINDOW);
+            tradesSinceDebrief -= DEBRIEF_TRADE_WINDOW;
+            cyclePnlDelta = 0;
+            councilCycleId = `cyc_${Math.random().toString(36).slice(2, 10)}`;
+          }
           return {
             positions: s.positions.filter((x) => x.id !== pid),
             bankroll,
@@ -661,6 +688,11 @@ export const useBotStore = create<BotState>()(
             peakBankroll: Math.max(s.peakBankroll, bankroll),
             totalFeesPaidSol: s.totalFeesPaidSol + fee,
             tradeHistory: [entry, ...s.tradeHistory].slice(0, MAX_HISTORY),
+            councilMemory,
+            councilCycleId,
+            tradesSinceDebrief,
+            cyclePnlDelta,
+            cycleClosedTrades,
             log: prepend(
               s.log,
               {
@@ -689,6 +721,7 @@ export const useBotStore = create<BotState>()(
                     },
                   ]
                 : []),
+              ...councilLogs,
             ).slice(0, MAX_LOG),
           };
         }),
