@@ -30,6 +30,7 @@ import { useBotSimulator } from "@/hooks/use-bot-simulator";
 import { SolanaProviders } from "@/lib/solana-provider";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useServerPersistence } from "@/hooks/use-server-persistence";
+import { useCouncilMemory } from "@/hooks/use-council-memory";
 import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
 import { useLiveExecutor } from "@/hooks/use-live-executor";
 import { useBotStore } from "@/lib/bot-store";
@@ -177,6 +178,7 @@ function AppShell() {
 function AppLayout({ children }: { children: ReactNode }) {
   useBotSimulator();
   useServerPersistence(true);
+  useCouncilMemory();
   const mode = useBotStore((s) => s.mode);
   useDexScreenerStream(mode === "live");
   const walletReady = useWalletReady();

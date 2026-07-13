@@ -16,6 +16,13 @@ import type {
   WatchSource,
 } from "./bot-types";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "./bot-types";
+import {
+  buildDebrief,
+  scoutBiasForToken,
+  DEBRIEF_TRADE_WINDOW,
+  MAX_COUNCIL_MEMORY,
+  type CouncilMemoryEntry,
+} from "./council";
 
 const MAX_FEED = 40;
 const MAX_LOG = 300;
@@ -114,6 +121,17 @@ interface BotState {
   lastHealthAt: number | null;
   walletName: string | null;
 
+  // Agent council — Scout nudges confidence per tick; Auditor debriefs every
+  // DEBRIEF_TRADE_WINDOW closed trades. Memory persists across sessions.
+  councilMemory: CouncilMemoryEntry[];
+  councilCycleId: string;
+  tradesSinceDebrief: number;
+  cyclePnlDelta: number;
+  cycleClosedTrades: TradeHistoryEntry[];
+  onCouncilAppend?: (entry: CouncilMemoryEntry) => void;
+
+
+
   // Actions
   setMode: (m: BotMode) => void;
   confirmLive: () => void;
@@ -211,6 +229,11 @@ interface BotState {
     logs: Array<Record<string, unknown>>;
     watchlist: Array<Record<string, unknown>>;
   }) => void;
+
+  /** Replace council memory (called after loading from the server). */
+  setCouncilMemory: (entries: CouncilMemoryEntry[]) => void;
+  /** Register a hook so persistence can mirror new debriefs to the server. */
+  setCouncilAppendHandler: (fn: ((e: CouncilMemoryEntry) => void) | undefined) => void;
 }
 
 const initialBankroll = 0.1;
@@ -294,6 +317,13 @@ const initial = {
   healthTickErrors: 0,
   lastHealthAt: null as number | null,
   walletName: null as string | null,
+
+  councilMemory: [] as CouncilMemoryEntry[],
+  councilCycleId: `cyc_${Math.random().toString(36).slice(2, 10)}`,
+  tradesSinceDebrief: 0,
+  cyclePnlDelta: 0,
+  cycleClosedTrades: [] as TradeHistoryEntry[],
+  onCouncilAppend: undefined as ((e: CouncilMemoryEntry) => void) | undefined,
 };
 
 export const useBotStore = create<BotState>()(
@@ -624,6 +654,33 @@ export const useBotStore = create<BotState>()(
             feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
             settlementStatus: fee > 0 ? "pending" : "n/a",
           };
+          // Feed the Auditor: manual closes count toward the debrief window.
+          let cycleClosedTrades = [...s.cycleClosedTrades, entry];
+          let councilMemory = s.councilMemory;
+          let councilCycleId = s.councilCycleId;
+          let tradesSinceDebrief = s.tradesSinceDebrief + 1;
+          let cyclePnlDelta = s.cyclePnlDelta + entry.netToUserSol;
+          const councilLogs: DecisionLogEntry[] = [];
+          while (tradesSinceDebrief >= DEBRIEF_TRADE_WINDOW) {
+            const windowTrades = cycleClosedTrades.slice(0, DEBRIEF_TRADE_WINDOW);
+            const debrief = buildDebrief({ cycleId: councilCycleId, windowTrades });
+            councilMemory = [debrief, ...councilMemory].slice(0, MAX_COUNCIL_MEMORY);
+            councilLogs.push({
+              id: id(),
+              ts: Date.now(),
+              type: "learning",
+              summary: debrief.summary,
+            });
+            try {
+              s.onCouncilAppend?.(debrief);
+            } catch (e) {
+              console.warn("[council] append handler failed", e);
+            }
+            cycleClosedTrades = cycleClosedTrades.slice(DEBRIEF_TRADE_WINDOW);
+            tradesSinceDebrief -= DEBRIEF_TRADE_WINDOW;
+            cyclePnlDelta = 0;
+            councilCycleId = `cyc_${Math.random().toString(36).slice(2, 10)}`;
+          }
           return {
             positions: s.positions.filter((x) => x.id !== pid),
             bankroll,
@@ -631,6 +688,11 @@ export const useBotStore = create<BotState>()(
             peakBankroll: Math.max(s.peakBankroll, bankroll),
             totalFeesPaidSol: s.totalFeesPaidSol + fee,
             tradeHistory: [entry, ...s.tradeHistory].slice(0, MAX_HISTORY),
+            councilMemory,
+            councilCycleId,
+            tradesSinceDebrief,
+            cyclePnlDelta,
+            cycleClosedTrades,
             log: prepend(
               s.log,
               {
@@ -659,6 +721,7 @@ export const useBotStore = create<BotState>()(
                     },
                   ]
                 : []),
+              ...councilLogs,
             ).slice(0, MAX_LOG),
           };
         }),
@@ -1063,7 +1126,20 @@ export const useBotStore = create<BotState>()(
             const symbol = `${token}/SOL`;
             const liquidity = 2 + Math.random() * 80;
             const safety = Math.floor(30 + Math.random() * 70);
-            const confidence = Math.floor(20 + Math.random() * 80);
+            const baseConfidence = Math.floor(20 + Math.random() * 80);
+            // Scout vote — nudge confidence up/down using historical council
+            // memory for the same token. Bias is clamped to ±20 so a single
+            // agent can never override safety filters or risk caps.
+            const scoutBias = scoutBiasForToken(s.councilMemory, token);
+            const confidence = Math.max(0, Math.min(100, baseConfidence + scoutBias));
+            if (scoutBias !== 0) {
+              newLogs.push({
+                id: id(),
+                ts: Date.now(),
+                type: "strategy",
+                summary: `Scout vote · ${token} bias ${scoutBias > 0 ? "+" : ""}${scoutBias} (from ${s.councilMemory.length} memory entries)`,
+              });
+            }
 
             const failsSafety = safety < sf.minSafety || liquidity < sf.minLiquiditySol;
             const inWatchlist = watchlist.some(
@@ -1284,6 +1360,36 @@ export const useBotStore = create<BotState>()(
             });
           }
 
+          // Auditor cadence: every DEBRIEF_TRADE_WINDOW closed trades, build a
+          // debrief entry, push it into council memory, and let the persistence
+          // hook mirror it server-side.
+          let cycleClosedTrades = [...s.cycleClosedTrades, ...newHistory];
+          let councilMemory = s.councilMemory;
+          let councilCycleId = s.councilCycleId;
+          let tradesSinceDebrief = s.tradesSinceDebrief + newHistory.length;
+          let cyclePnlDelta =
+            s.cyclePnlDelta + newHistory.reduce((a, t) => a + t.netToUserSol, 0);
+          while (tradesSinceDebrief >= DEBRIEF_TRADE_WINDOW) {
+            const windowTrades = cycleClosedTrades.slice(0, DEBRIEF_TRADE_WINDOW);
+            const entry = buildDebrief({ cycleId: councilCycleId, windowTrades });
+            councilMemory = [entry, ...councilMemory].slice(0, MAX_COUNCIL_MEMORY);
+            newLogs.push({
+              id: id(),
+              ts: Date.now(),
+              type: "learning",
+              summary: entry.summary,
+            });
+            try {
+              s.onCouncilAppend?.(entry);
+            } catch (e) {
+              console.warn("[council] append handler failed", e);
+            }
+            cycleClosedTrades = cycleClosedTrades.slice(DEBRIEF_TRADE_WINDOW);
+            tradesSinceDebrief -= DEBRIEF_TRADE_WINDOW;
+            cyclePnlDelta = 0;
+            councilCycleId = `cyc_${Math.random().toString(36).slice(2, 10)}`;
+          }
+
           set({
             bankroll,
             positions: keptPositions,
@@ -1300,6 +1406,11 @@ export const useBotStore = create<BotState>()(
             status: breached ? "paused" : "running",
             guardrailBreached: breached || s.guardrailBreached,
             healthTickErrors: 0,
+            councilMemory,
+            councilCycleId,
+            tradesSinceDebrief,
+            cyclePnlDelta,
+            cycleClosedTrades,
           });
         } catch (err) {
           // Resilience rule: transient tick failures NEVER change status.
@@ -1470,6 +1581,11 @@ export const useBotStore = create<BotState>()(
           }
           return patch;
         }),
+
+      setCouncilMemory: (entries) =>
+        set(() => ({ councilMemory: entries.slice(0, MAX_COUNCIL_MEMORY) })),
+
+      setCouncilAppendHandler: (fn) => set(() => ({ onCouncilAppend: fn })),
     }),
     {
       name: "sniperbot-state-v2",
