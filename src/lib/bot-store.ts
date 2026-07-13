@@ -1500,6 +1500,11 @@ export const useBotStore = create<BotState>()(
           }
           return patch;
         }),
+
+      setCouncilMemory: (entries) =>
+        set(() => ({ councilMemory: entries.slice(0, MAX_COUNCIL_MEMORY) })),
+
+      setCouncilAppendHandler: (fn) => set(() => ({ onCouncilAppend: fn })),
     }),
     {
       name: "sniperbot-state-v2",
