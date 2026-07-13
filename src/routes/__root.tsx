@@ -35,7 +35,7 @@ import { useLiveExecutor } from "@/hooks/use-live-executor";
 import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
-import { supabase } from "@/integrations/supabase/client";
+
 import { logStructured } from "@/lib/structured-logger";
 
 function NotFoundComponent() {
