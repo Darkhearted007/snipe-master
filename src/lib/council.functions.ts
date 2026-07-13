@@ -42,11 +42,24 @@ export const appendCouncilMemory = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export interface CouncilMemoryRow {
+  id: string;
+  cycle_id: string;
+  agent: "scout" | "auditor" | "council";
+  summary: string;
+  insights: Record<string, unknown>;
+  pnl_delta_sol: number;
+  trades_in_window: number;
+  created_at: string;
+}
+
 export const loadCouncilMemory = createServerFn({ method: "POST" })
-  .inputValidator((raw) => z.object({ limit: z.number().int().min(1).max(200).default(60) }).parse(raw))
-  .handler(async ({ data }) => {
+  .inputValidator((raw) =>
+    z.object({ limit: z.number().int().min(1).max(200).default(60) }).parse(raw),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; entries: CouncilMemoryRow[] }> => {
     const auth = await getOptionalPersistenceAuth();
-    if (!auth) return { ok: false, entries: [] as unknown[], skipped: true };
+    if (!auth) return { ok: false, entries: [] };
     const { supabase, userId } = auth;
     const { data: rows, error } = await supabase
       .from("council_memory" as never)
@@ -55,5 +68,5 @@ export const loadCouncilMemory = createServerFn({ method: "POST" })
       .order("created_at", { ascending: false })
       .limit(data.limit);
     if (error) throw new Error(error.message);
-    return { ok: true, entries: (rows ?? []) as unknown[] };
+    return { ok: true, entries: ((rows ?? []) as unknown as CouncilMemoryRow[]) };
   });
