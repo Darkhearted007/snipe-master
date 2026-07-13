@@ -178,6 +178,7 @@ function AppShell() {
 function AppLayout({ children }: { children: ReactNode }) {
   useBotSimulator();
   useServerPersistence(true);
+  useCouncilMemory();
   const mode = useBotStore((s) => s.mode);
   useDexScreenerStream(mode === "live");
   const walletReady = useWalletReady();
