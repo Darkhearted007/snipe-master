@@ -1093,7 +1093,20 @@ export const useBotStore = create<BotState>()(
             const symbol = `${token}/SOL`;
             const liquidity = 2 + Math.random() * 80;
             const safety = Math.floor(30 + Math.random() * 70);
-            const confidence = Math.floor(20 + Math.random() * 80);
+            const baseConfidence = Math.floor(20 + Math.random() * 80);
+            // Scout vote — nudge confidence up/down using historical council
+            // memory for the same token. Bias is clamped to ±20 so a single
+            // agent can never override safety filters or risk caps.
+            const scoutBias = scoutBiasForToken(s.councilMemory, token);
+            const confidence = Math.max(0, Math.min(100, baseConfidence + scoutBias));
+            if (scoutBias !== 0) {
+              newLogs.push({
+                id: id(),
+                ts: Date.now(),
+                type: "strategy",
+                summary: `Scout vote · ${token} bias ${scoutBias > 0 ? "+" : ""}${scoutBias} (from ${s.councilMemory.length} memory entries)`,
+              });
+            }
 
             const failsSafety = safety < sf.minSafety || liquidity < sf.minLiquiditySol;
             const inWatchlist = watchlist.some(
