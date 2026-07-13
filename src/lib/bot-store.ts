@@ -1327,6 +1327,36 @@ export const useBotStore = create<BotState>()(
             });
           }
 
+          // Auditor cadence: every DEBRIEF_TRADE_WINDOW closed trades, build a
+          // debrief entry, push it into council memory, and let the persistence
+          // hook mirror it server-side.
+          let cycleClosedTrades = [...s.cycleClosedTrades, ...newHistory];
+          let councilMemory = s.councilMemory;
+          let councilCycleId = s.councilCycleId;
+          let tradesSinceDebrief = s.tradesSinceDebrief + newHistory.length;
+          let cyclePnlDelta =
+            s.cyclePnlDelta + newHistory.reduce((a, t) => a + t.netToUserSol, 0);
+          while (tradesSinceDebrief >= DEBRIEF_TRADE_WINDOW) {
+            const windowTrades = cycleClosedTrades.slice(0, DEBRIEF_TRADE_WINDOW);
+            const entry = buildDebrief({ cycleId: councilCycleId, windowTrades });
+            councilMemory = [entry, ...councilMemory].slice(0, MAX_COUNCIL_MEMORY);
+            newLogs.push({
+              id: id(),
+              ts: Date.now(),
+              type: "learning",
+              summary: entry.summary,
+            });
+            try {
+              s.onCouncilAppend?.(entry);
+            } catch (e) {
+              console.warn("[council] append handler failed", e);
+            }
+            cycleClosedTrades = cycleClosedTrades.slice(DEBRIEF_TRADE_WINDOW);
+            tradesSinceDebrief -= DEBRIEF_TRADE_WINDOW;
+            cyclePnlDelta = 0;
+            councilCycleId = `cyc_${Math.random().toString(36).slice(2, 10)}`;
+          }
+
           set({
             bankroll,
             positions: keptPositions,
@@ -1343,6 +1373,11 @@ export const useBotStore = create<BotState>()(
             status: breached ? "paused" : "running",
             guardrailBreached: breached || s.guardrailBreached,
             healthTickErrors: 0,
+            councilMemory,
+            councilCycleId,
+            tradesSinceDebrief,
+            cyclePnlDelta,
+            cycleClosedTrades,
           });
         } catch (err) {
           // Resilience rule: transient tick failures NEVER change status.
