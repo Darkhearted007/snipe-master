@@ -121,6 +121,17 @@ interface BotState {
   lastHealthAt: number | null;
   walletName: string | null;
 
+  // Agent council — Scout nudges confidence per tick; Auditor debriefs every
+  // DEBRIEF_TRADE_WINDOW closed trades. Memory persists across sessions.
+  councilMemory: CouncilMemoryEntry[];
+  councilCycleId: string;
+  tradesSinceDebrief: number;
+  cyclePnlDelta: number;
+  cycleClosedTrades: TradeHistoryEntry[];
+  onCouncilAppend?: (entry: CouncilMemoryEntry) => void;
+
+
+
   // Actions
   setMode: (m: BotMode) => void;
   confirmLive: () => void;
