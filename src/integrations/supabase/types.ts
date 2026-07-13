@@ -38,6 +38,42 @@ export type Database = {
         }
         Relationships: []
       }
+      council_memory: {
+        Row: {
+          agent: string
+          created_at: string
+          cycle_id: string
+          id: string
+          insights: Json
+          pnl_delta_sol: number
+          summary: string
+          trades_in_window: number
+          user_id: string
+        }
+        Insert: {
+          agent: string
+          created_at?: string
+          cycle_id: string
+          id?: string
+          insights?: Json
+          pnl_delta_sol?: number
+          summary: string
+          trades_in_window?: number
+          user_id: string
+        }
+        Update: {
+          agent?: string
+          created_at?: string
+          cycle_id?: string
+          id?: string
+          insights?: Json
+          pnl_delta_sol?: number
+          summary?: string
+          trades_in_window?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       decision_logs: {
         Row: {
           created_at: string
