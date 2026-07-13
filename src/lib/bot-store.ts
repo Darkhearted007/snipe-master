@@ -317,6 +317,13 @@ const initial = {
   healthTickErrors: 0,
   lastHealthAt: null as number | null,
   walletName: null as string | null,
+
+  councilMemory: [] as CouncilMemoryEntry[],
+  councilCycleId: `cyc_${Math.random().toString(36).slice(2, 10)}`,
+  tradesSinceDebrief: 0,
+  cyclePnlDelta: 0,
+  cycleClosedTrades: [] as TradeHistoryEntry[],
+  onCouncilAppend: undefined as ((e: CouncilMemoryEntry) => void) | undefined,
 };
 
 export const useBotStore = create<BotState>()(
