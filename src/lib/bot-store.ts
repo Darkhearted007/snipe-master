@@ -229,6 +229,11 @@ interface BotState {
     logs: Array<Record<string, unknown>>;
     watchlist: Array<Record<string, unknown>>;
   }) => void;
+
+  /** Replace council memory (called after loading from the server). */
+  setCouncilMemory: (entries: CouncilMemoryEntry[]) => void;
+  /** Register a hook so persistence can mirror new debriefs to the server. */
+  setCouncilAppendHandler: (fn: ((e: CouncilMemoryEntry) => void) | undefined) => void;
 }
 
 const initialBankroll = 0.1;
