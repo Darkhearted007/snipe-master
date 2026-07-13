@@ -47,7 +47,9 @@ export interface CouncilMemoryRow {
   cycle_id: string;
   agent: "scout" | "auditor" | "council";
   summary: string;
-  insights: Record<string, unknown>;
+  /** Insights are transported as JSON strings to keep the server-fn payload
+   *  strictly serializable. Callers parse client-side. */
+  insights_json: string;
   pnl_delta_sol: number;
   trades_in_window: number;
   created_at: string;
@@ -68,5 +70,17 @@ export const loadCouncilMemory = createServerFn({ method: "POST" })
       .order("created_at", { ascending: false })
       .limit(data.limit);
     if (error) throw new Error(error.message);
-    return { ok: true, entries: ((rows ?? []) as unknown as CouncilMemoryRow[]) };
+    const entries: CouncilMemoryRow[] = ((rows ?? []) as unknown as Array<Record<string, unknown>>).map(
+      (r) => ({
+        id: String(r.id ?? ""),
+        cycle_id: String(r.cycle_id ?? ""),
+        agent: (r.agent as CouncilMemoryRow["agent"]) ?? "council",
+        summary: String(r.summary ?? ""),
+        insights_json: JSON.stringify(r.insights ?? {}),
+        pnl_delta_sol: Number(r.pnl_delta_sol ?? 0),
+        trades_in_window: Number(r.trades_in_window ?? 0),
+        created_at: String(r.created_at ?? ""),
+      }),
+    );
+    return { ok: true, entries };
   });
