@@ -146,6 +146,7 @@ export function WalletBar() {
             <span className="font-mono text-xs">{shortAddr(address)}</span>
             <span className="font-mono text-[10px] text-muted-foreground">
               · {formatSol(balance)}
+              {degraded && <span className="ml-1 text-warning">⟳</span>}
             </span>
           </Button>
         </DropdownMenuTrigger>
