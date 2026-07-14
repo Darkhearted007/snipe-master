@@ -36,6 +36,7 @@ import { useLiveExecutor } from "@/hooks/use-live-executor";
 import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
+import { SchemaCheckBanner } from "@/components/schema-check-banner";
 
 import { logStructured } from "@/lib/structured-logger";
 
@@ -188,6 +189,7 @@ function AppLayout({ children }: { children: ReactNode }) {
         <AppSidebar />
         <div className="flex min-h-screen flex-1 flex-col">
           <ControlHeader />
+          <SchemaCheckBanner />
           <StatusStrip />
           <main className="flex-1 p-4">{children}</main>
           {walletReady && <LiveExecutorMount />}
