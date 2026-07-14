@@ -1,5 +1,5 @@
 import { Wallet } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
@@ -15,64 +15,101 @@ import {
 import { toast } from "sonner";
 import { useWalletSync } from "@/hooks/use-wallet-sync";
 import { useBotStore } from "@/lib/bot-store";
+import { computeBackoff } from "@/lib/retry-backoff";
 
 function shortAddr(a: string) {
   return `${a.slice(0, 4)}…${a.slice(-4)}`;
 }
 
+const HEALTHY_POLL_MS = 20_000;
+
 function useSolBalance(address: string | null) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const [balance, setBalance] = useState<number | null>(null);
+  const [degraded, setDegraded] = useState(false);
   const setWalletBalance = useBotStore((s) => s.setWalletBalance);
+  const failuresRef = useRef(0);
 
   useEffect(() => {
     if (!publicKey || !address) {
       setBalance(null);
+      setDegraded(false);
       setWalletBalance?.(null);
       return;
     }
     let cancelled = false;
+    let timer: number | null = null;
+    let subId: number | null = null;
+
     const apply = (sol: number | null) => {
       if (cancelled) return;
       setBalance(sol);
       setWalletBalance?.(sol);
     };
-    const fetchBalance = async () => {
+
+    const scheduleNext = (delay: number) => {
+      if (cancelled) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void tick(), delay);
+    };
+
+    const resubscribe = () => {
+      if (subId !== null) {
+        void connection.removeAccountChangeListener(subId).catch(() => {});
+        subId = null;
+      }
+      try {
+        subId = connection.onAccountChange(
+          publicKey,
+          (acc) => apply(acc.lamports / LAMPORTS_PER_SOL),
+          "confirmed",
+        );
+      } catch {
+        // ignored — poller will keep balance fresh
+      }
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
       try {
         const lamports = await connection.getBalance(publicKey, "confirmed");
         apply(lamports / LAMPORTS_PER_SOL);
+        if (failuresRef.current > 0) {
+          // Recovered: reset counter, refresh subscription, resume normal cadence.
+          failuresRef.current = 0;
+          setDegraded(false);
+          resubscribe();
+        }
+        scheduleNext(HEALTHY_POLL_MS);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        // Swallow transient network blips (HMR reconnects, offline flicker).
-        if (!/Failed to fetch|NetworkError|fetch failed/i.test(msg)) {
-          console.warn("balance fetch failed", err);
-        }
+        const transient = /Failed to fetch|NetworkError|fetch failed|timeout/i.test(msg);
+        failuresRef.current += 1;
+        if (failuresRef.current >= 2) setDegraded(true);
+        if (!transient) console.warn("balance fetch failed", err);
+        // Full-jitter exponential backoff, capped at 30s.
+        const delay = Math.max(500, computeBackoff(failuresRef.current - 1, { baseMs: 1000, maxMs: 30_000 }));
+        scheduleNext(delay);
       }
     };
-    void fetchBalance();
-    const id = window.setInterval(fetchBalance, 20_000);
-    let subId: number | null = null;
-    try {
-      subId = connection.onAccountChange(
-        publicKey,
-        (acc) => apply(acc.lamports / LAMPORTS_PER_SOL),
-        "confirmed",
-      );
-    } catch (err) {
-      console.warn("balance subscribe failed", err);
-    }
+
+    resubscribe();
+    void tick();
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      if (timer !== null) window.clearTimeout(timer);
       if (subId !== null) {
         void connection.removeAccountChangeListener(subId).catch(() => {});
       }
     };
   }, [connection, publicKey, address, setWalletBalance]);
 
-  return balance;
+  return { balance, degraded };
 }
+
+
 
 function formatSol(sol: number | null): string {
   if (sol === null) return "—";
