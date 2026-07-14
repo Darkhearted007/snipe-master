@@ -125,7 +125,7 @@ export function WalletBar() {
   const { setVisible } = useWalletModal();
   const address = publicKey?.toBase58() ?? null;
   const name = wallet?.adapter.name ?? null;
-  const balance = useSolBalance(address);
+  const { balance, degraded } = useSolBalance(address);
 
   const copy = async () => {
     if (!address) return;
