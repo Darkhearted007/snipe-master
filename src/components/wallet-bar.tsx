@@ -159,6 +159,9 @@ export function WalletBar() {
           </div>
           <div className="px-2 pb-2 font-mono text-xs text-foreground">
             Balance: {formatSol(balance)}
+            {degraded && (
+              <span className="ml-2 text-[10px] text-warning">reconnecting…</span>
+            )}
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={copy}>Copy address</DropdownMenuItem>
