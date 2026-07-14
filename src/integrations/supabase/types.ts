@@ -101,6 +101,45 @@ export type Database = {
         }
         Relationships: []
       }
+      discovery_candidates: {
+        Row: {
+          decimals: number
+          discovered_at: string
+          discovery_signature: string | null
+          liquidity_usd: number | null
+          lp_mint: string | null
+          mint: string
+          raw_payload: Json | null
+          safety_score: number | null
+          symbol: string
+          venue: string
+        }
+        Insert: {
+          decimals?: number
+          discovered_at?: string
+          discovery_signature?: string | null
+          liquidity_usd?: number | null
+          lp_mint?: string | null
+          mint: string
+          raw_payload?: Json | null
+          safety_score?: number | null
+          symbol?: string
+          venue: string
+        }
+        Update: {
+          decimals?: number
+          discovered_at?: string
+          discovery_signature?: string | null
+          liquidity_usd?: number | null
+          lp_mint?: string | null
+          mint?: string
+          raw_payload?: Json | null
+          safety_score?: number | null
+          symbol?: string
+          venue?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -303,6 +342,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      prune_stale_discovery_candidates: { Args: never; Returns: undefined }
     }
     Enums: {
       app_role: "viewer" | "trader" | "admin"
