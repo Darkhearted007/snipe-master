@@ -43,7 +43,11 @@ function useSolBalance(address: string | null) {
         const lamports = await connection.getBalance(publicKey, "confirmed");
         apply(lamports / LAMPORTS_PER_SOL);
       } catch (err) {
-        console.warn("balance fetch failed", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        // Swallow transient network blips (HMR reconnects, offline flicker).
+        if (!/Failed to fetch|NetworkError|fetch failed/i.test(msg)) {
+          console.warn("balance fetch failed", err);
+        }
       }
     };
     void fetchBalance();
