@@ -221,12 +221,9 @@ function AuthGate({ children }: { children: ReactNode }) {
   }, [session, navigate]);
 
   if (session === undefined) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-xs text-muted-foreground">Loading session…</div>
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
+
   if (session === null) return null;
   return <>{children}</>;
 }
