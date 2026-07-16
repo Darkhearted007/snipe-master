@@ -22,7 +22,25 @@ export type AppRole = "viewer" | "trader" | "admin";
  *   Session   = signed in (sticky — persists across transient refresh nulls)
  */
 export function useAuthSession() {
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [session, setSession] = useState<Session | null | undefined>(() => {
+    // Synchronous read from localStorage so we don't flash "Loading session…"
+    // while getSession() resolves. Supabase persists the session as JSON at
+    // `sb-<project-ref>-auth-token`. If it exists and hasn't expired, treat
+    // it as signed-in immediately; getSession() will reconcile shortly.
+    if (typeof window === "undefined") return undefined;
+    try {
+      const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+      const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
+      if (!ref) return undefined;
+      const raw = window.localStorage.getItem(`sb-${ref}-auth-token`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Session & { expires_at?: number };
+      if (parsed?.expires_at && parsed.expires_at * 1000 < Date.now()) return undefined;
+      return parsed?.access_token ? (parsed as Session) : null;
+    } catch {
+      return undefined;
+    }
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -56,7 +74,8 @@ export function useAuthSession() {
         initialResolved = true;
         commit(null);
       }
-    }, 4000);
+    }, 1500);
+
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (!mounted) return;
