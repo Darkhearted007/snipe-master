@@ -37,6 +37,8 @@ import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 import { SchemaCheckBanner } from "@/components/schema-check-banner";
+import { AppShellSkeleton } from "@/components/app-shell-skeleton";
+
 
 import { logStructured } from "@/lib/structured-logger";
 
