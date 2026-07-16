@@ -16,18 +16,25 @@ export function useWalletReady() {
   return useContext(WalletReadyContext);
 }
 
+// Kick off the dynamic import at module-evaluation time (client only) so the
+// wallet-adapter chunk is already downloading/parsing by the time <SolanaProviders>
+// mounts. Falls back gracefully during SSR where `window` is undefined.
+const providersPromise: Promise<typeof import("./solana-provider-client")> | null =
+  typeof window !== "undefined" ? import("./solana-provider-client") : null;
+
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const [Providers, setProviders] = useState<ComponentType<{ children: ReactNode }> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    import("./solana-provider-client").then((m) => {
+    (providersPromise ?? import("./solana-provider-client")).then((m) => {
       if (!cancelled) setProviders(() => m.SolanaProviders);
     });
     return () => {
       cancelled = true;
     };
   }, []);
+
 
   if (!Providers) {
     return <WalletReadyContext.Provider value={false}>{children}</WalletReadyContext.Provider>;

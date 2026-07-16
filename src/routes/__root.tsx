@@ -37,6 +37,8 @@ import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 import { SchemaCheckBanner } from "@/components/schema-check-banner";
+import { AppShellSkeleton } from "@/components/app-shell-skeleton";
+
 
 import { logStructured } from "@/lib/structured-logger";
 
@@ -221,12 +223,9 @@ function AuthGate({ children }: { children: ReactNode }) {
   }, [session, navigate]);
 
   if (session === undefined) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-xs text-muted-foreground">Loading session…</div>
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
+
   if (session === null) return null;
   return <>{children}</>;
 }
