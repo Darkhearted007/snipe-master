@@ -81,23 +81,38 @@ export function useAuthSession() {
       if (!mounted) return;
       initialResolved = true;
 
-      // Explicit sign-out event — always honored.
-      if (event === "SIGNED_OUT") {
-        lastKnown = null;
-        commit(null);
-        return;
-      }
-
-      // Any other event that carries a session is authoritative.
+      // Any event that carries a session is authoritative.
       if (s) {
         commit(s);
         return;
       }
 
-      // Event without a session and it's NOT SIGNED_OUT. This is the
-      // transient token-refresh race. If we've ever held a valid session,
-      // ignore the null and keep the UI signed-in; the next event will
-      // reconcile.
+      // No session on the event. Distinguish a real sign-out from the
+      // transient SIGNED_OUT that Supabase emits during a failed token
+      // refresh: on a real sign-out the SDK clears its localStorage entry
+      // first, so if the persisted token is still there we're mid-refresh
+      // and must ignore the event to avoid bouncing the operator back to
+      // the auth page while the bot is running.
+      const storageStillHasToken = (() => {
+        try {
+          const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+          const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
+          if (!ref) return false;
+          return !!window.localStorage.getItem(`sb-${ref}-auth-token`);
+        } catch {
+          return false;
+        }
+      })();
+
+      if (event === "SIGNED_OUT" && !storageStillHasToken) {
+        lastKnown = null;
+        commit(null);
+        return;
+      }
+
+      // Transient null (refresh race, or SIGNED_OUT with token still
+      // persisted). If we've ever held a valid session, keep the UI
+      // signed-in; the next event will reconcile.
       if (lastKnown) {
         console.debug("[auth] ignoring transient null on", event);
         return;
