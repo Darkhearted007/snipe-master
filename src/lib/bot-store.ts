@@ -1515,10 +1515,12 @@ export const useBotStore = create<BotState>()(
               patch.peakBankroll = st.userDeposit;
             }
             if (typeof st.platformFeePct === "number") patch.platformFeePct = st.platformFeePct;
-            if (typeof st.mode === "string" && (st.mode === "paper" || st.mode === "live")) {
-              patch.mode = st.mode;
-            }
-            if (typeof st.liveConfirmed === "boolean") patch.liveConfirmed = st.liveConfirmed;
+            // Do NOT restore `mode` / `liveConfirmed` from the server. Those
+            // are session-level UI choices owned by the local persist layer.
+            // Restoring them here overwrites the user's just-switched Live
+            // mode with a stale Paper snapshot the moment the app hydrates
+            // from Lovable Cloud, which reads as "the toggle keeps flipping
+            // back to Paper".
             if (st.guardrails && typeof st.guardrails === "object") {
               patch.guardrails = { ...s.guardrails, ...(st.guardrails as Partial<Guardrails>) };
             }
