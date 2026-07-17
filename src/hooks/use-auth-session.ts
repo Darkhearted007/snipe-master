@@ -45,7 +45,26 @@ export function useAuthSession() {
   useEffect(() => {
     let mounted = true;
     let initialResolved = false;
-    let lastKnown: Session | null = null;
+    // Seed lastKnown from the synchronous localStorage read so a transient
+    // SIGNED_OUT (token-refresh race) fired before getSession() resolves
+    // does NOT bounce the user back to /auth on first mount.
+    let lastKnown: Session | null =
+      session && typeof session === "object" ? (session as Session) : null;
+
+    const readStorageSession = (): Session | null => {
+      try {
+        const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+        const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
+        if (!ref) return null;
+        const raw = window.localStorage.getItem(`sb-${ref}-auth-token`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Session & { expires_at?: number };
+        if (parsed?.expires_at && parsed.expires_at * 1000 < Date.now()) return null;
+        return parsed?.access_token ? (parsed as Session) : null;
+      } catch {
+        return null;
+      }
+    };
 
     const commit = (s: Session | null) => {
       if (!mounted) return;
@@ -58,21 +77,27 @@ export function useAuthSession() {
       .then(({ data }) => {
         if (!mounted) return;
         initialResolved = true;
-        commit(data.session ?? null);
+        // If getSession() returns null but storage still holds a non-expired
+        // token, trust storage — this is the refresh-race window.
+        const s = data.session ?? readStorageSession();
+        commit(s);
       })
       .catch((err) => {
         console.warn("[auth] getSession failed", err);
         if (!mounted) return;
         initialResolved = true;
-        commit(null);
+        commit(readStorageSession());
       });
 
-    // Safety net: never leave the UI stuck on "Loading session…"
+    // Safety net: never leave the UI stuck on "Loading session…".
+    // Do NOT commit null blindly — check storage; if a valid token is
+    // persisted, treat as signed-in until getSession() reconciles.
     const to = window.setTimeout(() => {
       if (!initialResolved && mounted) {
-        console.warn("[auth] getSession slow; provisionally treating as signed out");
-        initialResolved = true;
-        commit(null);
+        const s = readStorageSession();
+        if (s) console.warn("[auth] getSession slow; using persisted session");
+        else console.warn("[auth] getSession slow; no persisted session");
+        commit(s);
       }
     }, 1500);
 
