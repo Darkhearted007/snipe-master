@@ -10,10 +10,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
+  Navigate,
   createRootRouteWithContext,
   useRouter,
   useRouterState,
-  useNavigate,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -168,7 +168,7 @@ function RootComponent() {
 
 function AppShell() {
   const path = useRouterState({ select: (r) => r.location.pathname });
-  if (path === "/auth") return <Outlet />;
+  if (path === "/auth" || path.startsWith("/auth/")) return <Outlet />;
   return (
     <AuthGate>
       <AppLayout>
@@ -208,25 +208,23 @@ function LiveExecutorMount() {
 
 function AuthGate({ children }: { children: ReactNode }) {
   const session = useAuthSession();
-  const navigate = useNavigate();
+  const loggedRedirectRef = useState(false)[0];
 
-  useEffect(() => {
-    if (session === null) {
+  if (session === undefined) {
+    return <AppShellSkeleton />;
+  }
+
+  if (session === null) {
+    if (!loggedRedirectRef) {
       logStructured(new Error("no active session — redirecting to sign-in"), {
         category: "wallet",
         severity: "info",
         silent: true,
         context: { op: "auth-gate-redirect" },
       });
-      navigate({ to: "/auth" });
     }
-  }, [session, navigate]);
-
-  if (session === undefined) {
-    return <AppShellSkeleton />;
+    return <Navigate to="/auth" replace />;
   }
-
-  if (session === null) return null;
   return <>{children}</>;
 }
 
