@@ -17,12 +17,19 @@ interface DiscoveryRow {
 interface DiscoveryQueryBuilder {
   select(columns: string): this;
   is(column: string, value: unknown): this;
+  lt(column: string, value: unknown): this;
   order(column: string, opts: { ascending: boolean }): this;
   limit(n: number): Promise<{ data: DiscoveryRow[] | null; error: { message: string } | null }>;
   update(values: Partial<DiscoveryRow>): {
     eq(column: string, value: unknown): Promise<{ error: { message: string } | null }>;
   };
+  delete(): {
+    is(column: string, value: unknown): {
+      lt(column: string, value: unknown): Promise<{ error: { message: string } | null }>;
+    };
+  };
 }
+
 
 interface AdminClient {
   rpc(fn: string, args?: Record<string, unknown>): Promise<{ error: { message: string } | null }>;
