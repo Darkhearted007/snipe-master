@@ -15,13 +15,20 @@ export const Route = createFileRoute("/api/rpc")({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
       POST: async ({ request }) => {
-        const upstreamUrl =
+        // Prefer RPCFast (beam) when configured, then fall back to Helius.
+        const heliusUrl =
           process.env.HELIUS_RPC_URL ??
           (process.env.HELIUS_API_KEY
             ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
             : null);
+        const rpcFastUrl =
+          process.env.RPCFAST_HTTP_URL ??
+          (process.env.RPCFAST_API_KEY
+            ? `https://beam.rpcfast.com/?api_key=${process.env.RPCFAST_API_KEY}`
+            : null);
+        const upstreams = [rpcFastUrl, heliusUrl].filter(Boolean) as string[];
 
-        if (!upstreamUrl) {
+        if (upstreams.length === 0) {
           return new Response(JSON.stringify({ error: "RPC not configured" }), {
             status: 500,
             headers: { "Content-Type": "application/json", ...CORS },
@@ -29,31 +36,40 @@ export const Route = createFileRoute("/api/rpc")({
         }
 
         const body = await request.text();
-        try {
-          const upstream = await fetch(upstreamUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body,
-          });
-          const text = await upstream.text();
-          return new Response(text, {
-            status: upstream.status,
-            headers: { "Content-Type": "application/json", ...CORS },
-          });
-        } catch (e) {
-          const detail = e instanceof Error ? e.message : String(e);
-          // Never 5xx-hard so the wallet adapter can keep retrying with backoff
-          return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              error: { code: -32603, message: "RPC upstream unavailable", data: detail },
-            }),
-            {
-              status: 200,
+        let lastDetail = "no upstreams tried";
+        for (const url of upstreams) {
+          try {
+            const upstream = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body,
+            });
+            const text = await upstream.text();
+            // If upstream 5xx'd, try the next one; otherwise return.
+            if (upstream.status >= 500) {
+              lastDetail = `HTTP ${upstream.status} from upstream`;
+              continue;
+            }
+            return new Response(text, {
+              status: upstream.status,
               headers: { "Content-Type": "application/json", ...CORS },
-            },
-          );
+            });
+          } catch (e) {
+            lastDetail = e instanceof Error ? e.message : String(e);
+            continue;
+          }
         }
+        // All upstreams failed — soft-fail so the wallet adapter can retry.
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32603, message: "RPC upstream unavailable", data: lastDetail },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...CORS },
+          },
+        );
       },
     },
   },
