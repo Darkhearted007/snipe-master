@@ -17,7 +17,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -208,14 +208,15 @@ function LiveExecutorMount() {
 
 function AuthGate({ children }: { children: ReactNode }) {
   const session = useAuthSession();
-  const loggedRedirectRef = useState(false)[0];
+  const loggedRedirectRef = useRef(false);
 
   if (session === undefined) {
     return <AppShellSkeleton />;
   }
 
   if (session === null) {
-    if (!loggedRedirectRef) {
+    if (!loggedRedirectRef.current) {
+      loggedRedirectRef.current = true;
       logStructured(new Error("no active session — redirecting to sign-in"), {
         category: "wallet",
         severity: "info",
