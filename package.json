@@ -1,7 +1,12 @@
 {
   "name": "tanstack_start_ts",
   "private": true,
-  "sideEffects": false,
+  "sideEffects": [
+    "src/lib/buffer-shim.ts",
+    "src/vendor/wallet-adapter.css",
+    "src/styles.css",
+    "**/*.css"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite dev",

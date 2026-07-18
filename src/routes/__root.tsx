@@ -7,6 +7,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/600.css";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import {
   Outlet,
   Link,
@@ -17,7 +18,10 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { Loader2, ShieldCheck, Wallet } from "lucide-react";
+import { toast } from "sonner";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -38,6 +42,12 @@ import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 import { SchemaCheckBanner } from "@/components/schema-check-banner";
 import { AppShellSkeleton } from "@/components/app-shell-skeleton";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { WalletBar } from "@/components/wallet-bar";
+import { requestNonce, verifySiws } from "@/lib/auth.functions";
+import { supabase } from "@/integrations/supabase/client";
 
 
 import { logStructured } from "@/lib/structured-logger";
@@ -168,7 +178,7 @@ function RootComponent() {
 
 function AppShell() {
   const path = useRouterState({ select: (r) => r.location.pathname });
-  if (path === "/auth") return <Outlet />;
+  if (path === "/auth" || path.startsWith("/auth/")) return <Outlet />;
   return (
     <AuthGate>
       <AppLayout>
@@ -208,25 +218,112 @@ function LiveExecutorMount() {
 
 function AuthGate({ children }: { children: ReactNode }) {
   const session = useAuthSession();
-  const navigate = useNavigate();
+  const loggedRedirectRef = useRef(false);
 
-  useEffect(() => {
-    if (session === null) {
+  if (session === undefined) {
+    return <AppShellSkeleton />;
+  }
+
+  if (session === null) {
+    if (!loggedRedirectRef.current) {
+      loggedRedirectRef.current = true;
       logStructured(new Error("no active session — redirecting to sign-in"), {
         category: "wallet",
         severity: "info",
         silent: true,
         context: { op: "auth-gate-redirect" },
       });
-      navigate({ to: "/auth" });
     }
-  }, [session, navigate]);
-
-  if (session === undefined) {
-    return <AppShellSkeleton />;
+    return <AuthScreen />;
   }
-
-  if (session === null) return null;
   return <>{children}</>;
+}
+
+function AuthScreen() {
+  const walletReady = useWalletReady();
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            <CardTitle>Sign in to SniperBot</CardTitle>
+          </div>
+          <CardDescription>
+            Connect your Solana wallet and sign a one-time challenge. No transaction, no gas.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {walletReady ? (
+            <SiwsPanel />
+          ) : (
+            <Button disabled className="w-full gap-1.5">
+              <Wallet className="h-4 w-4" /> Loading wallet…
+            </Button>
+          )}
+          <Alert>
+            <AlertTitle className="text-xs">How access works</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground">
+              New wallets start with <span className="font-mono">viewer</span> access. An admin can
+              promote you to <span className="font-mono">trader</span> to control the bot.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SiwsPanel() {
+  const [busy, setBusy] = useState(false);
+  const reqNonce = useServerFn(requestNonce);
+  const verify = useServerFn(verifySiws);
+  const { publicKey, signMessage, connected } = useWallet();
+  const navigate = useNavigate();
+  const router = useRouter();
+
+  const handleSignIn = async () => {
+    if (!connected || !publicKey || !signMessage) {
+      toast.error("Connect a wallet first");
+      return;
+    }
+    setBusy(true);
+    try {
+      const address = publicKey.toBase58();
+      const { nonce } = await reqNonce({ data: { walletAddress: address } });
+      const msg = new TextEncoder().encode(
+        ["Sign in to SniperBot Dashboard", "", `Wallet: ${address}`, `Nonce: ${nonce}`].join("\n"),
+      );
+      const sigBytes = await signMessage(msg);
+      const bs58 = (await import("bs58")).default;
+      const signature = bs58.encode(sigBytes);
+      const { tokenHash } = await verify({ data: { walletAddress: address, signature, nonce } });
+      const { error: otpErr } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: "magiclink",
+      });
+      if (otpErr) throw new Error(otpErr.message);
+      toast.success("Signed in", { description: `${address.slice(0, 4)}…${address.slice(-4)}` });
+      router.invalidate();
+      navigate({ to: "/", replace: true });
+    } catch (e) {
+      toast.error("Sign-in failed", { description: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md border bg-muted/30 p-2">
+        <WalletBar />
+      </div>
+      <Button className="w-full gap-1.5" onClick={handleSignIn} disabled={busy || !connected}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+        {connected ? "Sign challenge & sign in" : "Connect a wallet first"}
+      </Button>
+    </div>
+  );
 }
 
