@@ -15,13 +15,20 @@ export const Route = createFileRoute("/api/rpc")({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
       POST: async ({ request }) => {
-        const upstreamUrl =
+        // Prefer RPCFast (beam) when configured, then fall back to Helius.
+        const heliusUrl =
           process.env.HELIUS_RPC_URL ??
           (process.env.HELIUS_API_KEY
             ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
             : null);
+        const rpcFastUrl =
+          process.env.RPCFAST_HTTP_URL ??
+          (process.env.RPCFAST_API_KEY
+            ? `https://beam.rpcfast.com/?api_key=${process.env.RPCFAST_API_KEY}`
+            : null);
+        const upstreams = [rpcFastUrl, heliusUrl].filter(Boolean) as string[];
 
-        if (!upstreamUrl) {
+        if (upstreams.length === 0) {
           return new Response(JSON.stringify({ error: "RPC not configured" }), {
             status: 500,
             headers: { "Content-Type": "application/json", ...CORS },
