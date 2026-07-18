@@ -49,11 +49,16 @@ export const Route = createFileRoute("/api/discovery")({
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const admin = supabaseAdmin as unknown as AdminClient;
 
-        // Best-effort prune; don't fail the read if it errors.
-        const pruneResult = await admin.rpc("prune_stale_discovery_candidates");
-        if (pruneResult.error) {
-          console.error("[discovery] prune failed", pruneResult.error);
+        // Best-effort prune of stale unscored candidates (>24h old).
+        const { error: pruneError } = await admin
+          .from("discovery_candidates")
+          .delete()
+          .is("safety_score", null)
+          .lt("discovered_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+        if (pruneError) {
+          console.error("[discovery] prune failed", pruneError);
         }
+
 
         const { data: unscored } = await admin
           .from("discovery_candidates")
