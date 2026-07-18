@@ -18,13 +18,19 @@ const roleMutationInput = z.object({
 });
 
 async function assertAdmin(supabase: SupabaseClient, callerId: string) {
-  const { data, error } = await supabase.rpc("has_role", {
-    _user_id: callerId,
-    _role: "admin",
-  });
+  // Direct read against user_roles under RLS ("users view own roles") — the
+  // has_role SECURITY DEFINER helper now lives in a private schema and is
+  // not reachable via PostgREST.
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", callerId)
+    .eq("role", "admin")
+    .maybeSingle();
   if (error) throw new Error(`role check failed: ${error.message}`);
-  if (data !== true) throw new Error("Forbidden: admin role required");
+  if (!data) throw new Error("Forbidden: admin role required");
 }
+
 
 export type AdminUserRow = {
   id: string;
