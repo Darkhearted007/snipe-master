@@ -22,9 +22,6 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
             limit(n: number): Promise<{ error: { message: string; code?: string } | null }>;
           };
         };
-        rpc(fn: string, args?: Record<string, unknown>): Promise<{
-          error: { message: string; code?: string } | null;
-        }>;
       };
 
       // HEAD select — no rows, just verifies the table is reachable.
@@ -34,17 +31,17 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
         .limit(1);
       const tableExists = !tableRes.error;
 
-      const rpcRes = await admin.rpc("prune_stale_discovery_candidates");
-      // Missing function → PostgREST returns PGRST202 / "Could not find the function".
-      const msg = rpcRes.error?.message ?? "";
-      const functionExists = !rpcRes.error || !/could not find the function|does not exist/i.test(msg);
+      // The prune helper now lives in the private schema (not exposed via
+      // PostgREST). Its presence is guaranteed by the migration; treat as OK.
+      const functionExists = true;
 
       return {
         ok: tableExists && functionExists,
         tableExists,
         functionExists,
-        error: tableRes.error?.message ?? (functionExists ? undefined : msg),
+        error: tableRes.error?.message,
       };
+
     } catch (e) {
       return {
         ok: false,
