@@ -5,6 +5,34 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type AppRole = "viewer" | "trader" | "admin";
 
+function readPersistedSupabaseSession(): Session | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
+    const keys = ref
+      ? [`sb-${ref}-auth-token`]
+      : Array.from({ length: window.localStorage.length }, (_, i) =>
+          window.localStorage.key(i) ?? "",
+        ).filter((key) => key.startsWith("sb-") && key.endsWith("-auth-token"));
+
+    for (const key of keys) {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Session & {
+        expires_at?: number;
+        currentSession?: Session & { expires_at?: number };
+      };
+      const session = parsed.currentSession ?? parsed;
+      if (session?.expires_at && session.expires_at * 1000 < Date.now()) continue;
+      if (session?.access_token) return session as Session;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 /**
  * Session hook with sticky semantics.
  *
@@ -28,18 +56,7 @@ export function useAuthSession() {
     // `sb-<project-ref>-auth-token`. If it exists and hasn't expired, treat
     // it as signed-in immediately; getSession() will reconcile shortly.
     if (typeof window === "undefined") return undefined;
-    try {
-      const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-      const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
-      if (!ref) return undefined;
-      const raw = window.localStorage.getItem(`sb-${ref}-auth-token`);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as Session & { expires_at?: number };
-      if (parsed?.expires_at && parsed.expires_at * 1000 < Date.now()) return undefined;
-      return parsed?.access_token ? (parsed as Session) : null;
-    } catch {
-      return undefined;
-    }
+    return readPersistedSupabaseSession();
   });
 
   useEffect(() => {
@@ -51,55 +68,40 @@ export function useAuthSession() {
     let lastKnown: Session | null =
       session && typeof session === "object" ? (session as Session) : null;
 
-    const readStorageSession = (): Session | null => {
-      try {
-        const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-        const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
-        if (!ref) return null;
-        const raw = window.localStorage.getItem(`sb-${ref}-auth-token`);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw) as Session & { expires_at?: number };
-        if (parsed?.expires_at && parsed.expires_at * 1000 < Date.now()) return null;
-        return parsed?.access_token ? (parsed as Session) : null;
-      } catch {
-        return null;
-      }
-    };
-
     const commit = (s: Session | null) => {
       if (!mounted) return;
       if (s) lastKnown = s;
       setSession(s);
     };
 
-    supabase.auth
-      .getSession()
+    // Safety net: never leave the UI stuck on the skeleton. Register this
+    // BEFORE touching the auth client so even a synchronous client-init error
+    // resolves the gate and lets the /auth route render.
+    const to = window.setTimeout(() => {
+      if (!initialResolved && mounted) {
+        const s = readPersistedSupabaseSession();
+        if (s) console.warn("[auth] getSession slow; using persisted session");
+        else console.warn("[auth] getSession slow; no persisted session");
+        commit(s);
+      }
+    }, 700);
+
+    Promise.resolve()
+      .then(() => supabase.auth.getSession())
       .then(({ data }) => {
         if (!mounted) return;
         initialResolved = true;
         // If getSession() returns null but storage still holds a non-expired
         // token, trust storage — this is the refresh-race window.
-        const s = data.session ?? readStorageSession();
+        const s = data.session ?? readPersistedSupabaseSession();
         commit(s);
       })
       .catch((err) => {
         console.warn("[auth] getSession failed", err);
         if (!mounted) return;
         initialResolved = true;
-        commit(readStorageSession());
+        commit(readPersistedSupabaseSession());
       });
-
-    // Safety net: never leave the UI stuck on "Loading session…".
-    // Do NOT commit null blindly — check storage; if a valid token is
-    // persisted, treat as signed-in until getSession() reconciles.
-    const to = window.setTimeout(() => {
-      if (!initialResolved && mounted) {
-        const s = readStorageSession();
-        if (s) console.warn("[auth] getSession slow; using persisted session");
-        else console.warn("[auth] getSession slow; no persisted session");
-        commit(s);
-      }
-    }, 1500);
 
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
@@ -120,10 +122,7 @@ export function useAuthSession() {
       // the auth page while the bot is running.
       const storageStillHasToken = (() => {
         try {
-          const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-          const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
-          if (!ref) return false;
-          return !!window.localStorage.getItem(`sb-${ref}-auth-token`);
+          return !!readPersistedSupabaseSession();
         } catch {
           return false;
         }
