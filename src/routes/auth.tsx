@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ShieldCheck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
