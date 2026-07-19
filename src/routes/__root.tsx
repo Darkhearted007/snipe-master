@@ -208,7 +208,12 @@ function AppLayout({ children }: { children: ReactNode }) {
 function AuthGate({ children }: { children: ReactNode }) {
   const session = useAuthSession();
   const loggedRedirectRef = useRef(false);
+  const [hydrated, setHydrated] = useState(false);
   const [watchdogTripped, setWatchdogTripped] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     if (session !== undefined) {
@@ -227,7 +232,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(t);
   }, [session]);
 
-  if (session === undefined) {
+  if (!hydrated || session === undefined) {
     if (watchdogTripped) return <SessionTimeoutFallback />;
     return <AppShellSkeleton />;
   }
