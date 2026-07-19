@@ -1,17 +1,12 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { Loader2, ShieldCheck, Wallet } from "lucide-react";
-import { toast } from "sonner";
+import { ShieldCheck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { WalletBar } from "@/components/wallet-bar";
 import { useWalletReady } from "@/lib/solana-provider";
-import { requestNonce, verifySiws } from "@/lib/auth.functions";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuthSession } from "@/hooks/use-auth-session";
+import { LazySiwsPanel } from "@/components/wallet-lazy";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -49,7 +44,7 @@ function AuthPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {walletReady ? (
-            <SiwsPanel />
+            <LazySiwsPanel />
           ) : (
             <Button disabled className="w-full gap-1.5">
               <Wallet className="h-4 w-4" /> Loading wallet…
@@ -65,62 +60,6 @@ function AuthPage() {
           </Alert>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function SiwsPanel() {
-  const [busy, setBusy] = useState(false);
-  const reqNonce = useServerFn(requestNonce);
-  const verify = useServerFn(verifySiws);
-  const { publicKey, signMessage, connected } = useWallet();
-  const navigate = useNavigate();
-  const router = useRouter();
-
-  const handleSignIn = async () => {
-    if (!connected || !publicKey || !signMessage) {
-      toast.error("Connect a wallet first");
-      return;
-    }
-    setBusy(true);
-    try {
-      const address = publicKey.toBase58();
-      const { nonce } = await reqNonce({ data: { walletAddress: address } });
-      const msg = new TextEncoder().encode(
-        ["Sign in to SniperBot Dashboard", "", `Wallet: ${address}`, `Nonce: ${nonce}`].join("\n"),
-      );
-      const sigBytes = await signMessage(msg);
-      const bs58 = (await import("bs58")).default;
-      const signature = bs58.encode(sigBytes);
-      const { tokenHash } = await verify({
-        data: { walletAddress: address, signature, nonce },
-      });
-      const { error: otpErr } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: "magiclink",
-      });
-      if (otpErr) throw new Error(otpErr.message);
-      toast.success("Signed in", {
-        description: `${address.slice(0, 4)}…${address.slice(-4)}`,
-      });
-      router.invalidate();
-      navigate({ to: "/" });
-    } catch (e) {
-      toast.error("Sign-in failed", { description: (e as Error).message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="rounded-md border bg-muted/30 p-2">
-        <WalletBar />
-      </div>
-      <Button className="w-full gap-1.5" onClick={handleSignIn} disabled={busy || !connected}>
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-        {connected ? "Sign challenge & sign in" : "Connect a wallet first"}
-      </Button>
     </div>
   );
 }

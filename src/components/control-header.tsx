@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { useBotStore } from "@/lib/bot-store";
 import type { BotMode } from "@/lib/bot-types";
 import { useWalletReady } from "@/lib/solana-provider";
-import { WalletBar } from "@/components/wallet-bar";
+import { LazyWalletBar } from "@/components/wallet-lazy";
 import { useHasRole } from "@/hooks/use-auth-session";
 import { RoleBadge } from "@/components/role-badge";
 import { supabase } from "@/integrations/supabase/client";
@@ -131,7 +131,7 @@ export function ControlHeader() {
 
       {mode === "live" &&
         (walletReady ? (
-          <WalletBar />
+          <LazyWalletBar />
         ) : (
           <Button variant="outline" size="sm" disabled className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" />

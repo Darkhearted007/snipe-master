@@ -20,60 +20,7 @@ import {
 import { useBotStore } from "@/lib/bot-store";
 import type { Opportunity } from "@/lib/bot-types";
 import { cn } from "@/lib/utils";
-import { useLiveExecution } from "@/hooks/use-live-execution";
-import { SOL_MINT } from "@/lib/jupiter";
-
-const LAMPORTS_PER_SOL = 1_000_000_000;
-
-function ExecuteButton({ opp }: { opp: Opportunity }) {
-  const mode = useBotStore((s) => s.mode);
-  const requestLiveEntry = useBotStore((s) => s.requestLiveEntry);
-  const confirmLiveEntry = useBotStore((s) => s.confirmLiveEntry);
-  const failLiveEntry = useBotStore((s) => s.failLiveEntry);
-  const { executeSwap, walletReady } = useLiveExecution();
-  const [busy, setBusy] = useState(false);
-
-  if (mode !== "live" || !opp.mint) return null;
-
-  const gate = requestLiveEntry(opp.id);
-
-  return (
-    <Button
-      size="sm"
-      variant={gate.ok ? "default" : "secondary"}
-      disabled={!gate.ok || !walletReady || busy}
-      title={gate.ok ? undefined : gate.error}
-      onClick={async (e) => {
-        e.stopPropagation();
-        if (!gate.ok) return;
-        setBusy(true);
-        try {
-          const result = await executeSwap({
-            inputMint: SOL_MINT,
-            outputMint: opp.mint!,
-            amountLamports: Math.floor(gate.sizeSol * LAMPORTS_PER_SOL),
-            slippageBps: 300,
-            maxPriceImpactPct: 15,
-          });
-          confirmLiveEntry({
-            opportunityId: opp.id,
-            sizeSol: gate.sizeSol,
-            signature: result.signature,
-          });
-        } catch (err) {
-          failLiveEntry({
-            opportunityId: opp.id,
-            reason: err instanceof Error ? err.message : String(err),
-          });
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      {busy ? "Executing…" : "Execute"}
-    </Button>
-  );
-}
+import { LazyLiveExecuteButton } from "@/components/wallet-lazy";
 
 export function OpportunityFeed() {
   const opps = useBotStore((s) => s.opportunities);
@@ -149,7 +96,7 @@ export function OpportunityFeed() {
                     )}
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <ExecuteButton opp={o} />
+                    <LazyLiveExecuteButton opp={o} />
                   </TableCell>
                 </TableRow>
               ))}
