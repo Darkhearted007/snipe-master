@@ -50,14 +50,10 @@ function readPersistedSupabaseSession(): Session | null {
  *   Session   = signed in (sticky — persists across transient refresh nulls)
  */
 export function useAuthSession() {
-  const [session, setSession] = useState<Session | null | undefined>(() => {
-    // Synchronous read from localStorage so we don't flash "Loading session…"
-    // while getSession() resolves. Supabase persists the session as JSON at
-    // `sb-<project-ref>-auth-token`. If it exists and hasn't expired, treat
-    // it as signed-in immediately; getSession() will reconcile shortly.
-    if (typeof window === "undefined") return undefined;
-    return readPersistedSupabaseSession();
-  });
+  // Keep the first client render identical to SSR. The persisted session is
+  // still read immediately after hydration below, which avoids both the blank
+  // skeleton hang and React's full-tree hydration recovery.
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
 
   useEffect(() => {
     let mounted = true;
@@ -65,14 +61,20 @@ export function useAuthSession() {
     // Seed lastKnown from the synchronous localStorage read so a transient
     // SIGNED_OUT (token-refresh race) fired before getSession() resolves
     // does NOT bounce the user back to /auth on first mount.
-    let lastKnown: Session | null =
-      session && typeof session === "object" ? (session as Session) : null;
+    const persistedAtMount = readPersistedSupabaseSession();
+    let lastKnown: Session | null = persistedAtMount;
 
     const commit = (s: Session | null) => {
       if (!mounted) return;
       if (s) lastKnown = s;
       setSession(s);
     };
+
+    // Resolve the gate on the first post-hydration tick from browser storage,
+    // then let getSession() reconcile/refresh in the background.
+    window.queueMicrotask(() => {
+      if (!initialResolved && mounted) commit(persistedAtMount);
+    });
 
     // Safety net: never leave the UI stuck on the skeleton. Register this
     // BEFORE touching the auth client so even a synchronous client-init error

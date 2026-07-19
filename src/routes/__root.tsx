@@ -7,20 +7,16 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/600.css";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import {
   Outlet,
   Link,
   createRootRouteWithContext,
   useRouter,
   useRouterState,
-  useNavigate,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { Loader2, ShieldCheck, Wallet } from "lucide-react";
-import { toast } from "sonner";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
@@ -36,7 +32,6 @@ import { useAuthSession } from "@/hooks/use-auth-session";
 import { useServerPersistence } from "@/hooks/use-server-persistence";
 import { useCouncilMemory } from "@/hooks/use-council-memory";
 import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
-import { useLiveExecutor } from "@/hooks/use-live-executor";
 import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
@@ -45,8 +40,7 @@ import { AppShellSkeleton } from "@/components/app-shell-skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { WalletBar } from "@/components/wallet-bar";
-import { requestNonce, verifySiws } from "@/lib/auth.functions";
+import { LazyLiveExecutorMount, LazySiwsPanel } from "@/components/wallet-lazy";
 import { supabase } from "@/integrations/supabase/client";
 
 
@@ -204,22 +198,22 @@ function AppLayout({ children }: { children: ReactNode }) {
           <SchemaCheckBanner />
           <StatusStrip />
           <main className="flex-1 p-4">{children}</main>
-          {walletReady && <LiveExecutorMount />}
+          {walletReady && <LazyLiveExecutorMount />}
         </div>
       </div>
     </SidebarProvider>
   );
 }
 
-function LiveExecutorMount() {
-  useLiveExecutor();
-  return null;
-}
-
 function AuthGate({ children }: { children: ReactNode }) {
   const session = useAuthSession();
   const loggedRedirectRef = useRef(false);
+  const [hydrated, setHydrated] = useState(false);
   const [watchdogTripped, setWatchdogTripped] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     if (session !== undefined) {
@@ -238,7 +232,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(t);
   }, [session]);
 
-  if (session === undefined) {
+  if (!hydrated || session === undefined) {
     if (watchdogTripped) return <SessionTimeoutFallback />;
     return <AppShellSkeleton />;
   }
@@ -321,7 +315,7 @@ function AuthScreen() {
         </CardHeader>
         <CardContent className="space-y-4">
           {walletReady ? (
-            <SiwsPanel />
+            <LazySiwsPanel />
           ) : (
             <Button disabled className="w-full gap-1.5">
               <Wallet className="h-4 w-4" /> Loading wallet…
@@ -336,58 +330,6 @@ function AuthScreen() {
           </Alert>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function SiwsPanel() {
-  const [busy, setBusy] = useState(false);
-  const reqNonce = useServerFn(requestNonce);
-  const verify = useServerFn(verifySiws);
-  const { publicKey, signMessage, connected } = useWallet();
-  const navigate = useNavigate();
-  const router = useRouter();
-
-  const handleSignIn = async () => {
-    if (!connected || !publicKey || !signMessage) {
-      toast.error("Connect a wallet first");
-      return;
-    }
-    setBusy(true);
-    try {
-      const address = publicKey.toBase58();
-      const { nonce } = await reqNonce({ data: { walletAddress: address } });
-      const msg = new TextEncoder().encode(
-        ["Sign in to SniperBot Dashboard", "", `Wallet: ${address}`, `Nonce: ${nonce}`].join("\n"),
-      );
-      const sigBytes = await signMessage(msg);
-      const bs58 = (await import("bs58")).default;
-      const signature = bs58.encode(sigBytes);
-      const { tokenHash } = await verify({ data: { walletAddress: address, signature, nonce } });
-      const { error: otpErr } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: "magiclink",
-      });
-      if (otpErr) throw new Error(otpErr.message);
-      toast.success("Signed in", { description: `${address.slice(0, 4)}…${address.slice(-4)}` });
-      router.invalidate();
-      navigate({ to: "/", replace: true });
-    } catch (e) {
-      toast.error("Sign-in failed", { description: (e as Error).message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="rounded-md border bg-muted/30 p-2">
-        <WalletBar />
-      </div>
-      <Button className="w-full gap-1.5" onClick={handleSignIn} disabled={busy || !connected}>
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-        {connected ? "Sign challenge & sign in" : "Connect a wallet first"}
-      </Button>
     </div>
   );
 }
