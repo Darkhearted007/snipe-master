@@ -173,13 +173,19 @@ function RootComponent() {
 
 function AppShell() {
   const path = useRouterState({ select: (r) => r.location.pathname });
-  if (path === "/auth" || path.startsWith("/auth/")) return <Outlet />;
   return (
-    <AuthGate>
-      <AppLayout>
+    <>
+      <ServiceRoleWarning />
+      {path === "/auth" || path.startsWith("/auth/") ? (
         <Outlet />
-      </AppLayout>
-    </AuthGate>
+      ) : (
+        <AuthGate>
+          <AppLayout>
+            <Outlet />
+          </AppLayout>
+        </AuthGate>
+      )}
+    </>
   );
 }
 
