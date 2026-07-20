@@ -41,6 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { LazyLiveExecutorMount, LazySiwsPanel } from "@/components/wallet-lazy";
+import { ServiceRoleWarning } from "@/components/service-role-warning";
 import { supabase } from "@/integrations/supabase/client";
 
 
@@ -172,13 +173,19 @@ function RootComponent() {
 
 function AppShell() {
   const path = useRouterState({ select: (r) => r.location.pathname });
-  if (path === "/auth" || path.startsWith("/auth/")) return <Outlet />;
   return (
-    <AuthGate>
-      <AppLayout>
+    <>
+      <ServiceRoleWarning />
+      {path === "/auth" || path.startsWith("/auth/") ? (
         <Outlet />
-      </AppLayout>
-    </AuthGate>
+      ) : (
+        <AuthGate>
+          <AppLayout>
+            <Outlet />
+          </AppLayout>
+        </AuthGate>
+      )}
+    </>
   );
 }
 

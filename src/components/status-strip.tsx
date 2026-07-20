@@ -3,6 +3,7 @@ import { useBotStore } from "@/lib/bot-store";
 import { StatusDot } from "./status-dot";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { WalletReadinessBadge } from "./wallet-readiness-badge";
 
 function useUptime(startedAt: number | null, running: boolean) {
   const [now, setNow] = useState(Date.now());
@@ -72,6 +73,7 @@ export function StatusStrip() {
           </Badge>
         ))}
       </div>
+      <WalletReadinessBadge />
       <div className="ml-auto flex flex-wrap gap-4">
         {kpis.map((k) => (
           <div key={k.label} className="flex flex-col">
