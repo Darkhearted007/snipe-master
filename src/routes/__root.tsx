@@ -41,6 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { LazyLiveExecutorMount, LazySiwsPanel } from "@/components/wallet-lazy";
+import { ServiceRoleWarning } from "@/components/service-role-warning";
 import { supabase } from "@/integrations/supabase/client";
 
 
