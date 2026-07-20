@@ -73,6 +73,7 @@ export function StatusStrip() {
           </Badge>
         ))}
       </div>
+      <WalletReadinessBadge />
       <div className="ml-auto flex flex-wrap gap-4">
         {kpis.map((k) => (
           <div key={k.label} className="flex flex-col">
