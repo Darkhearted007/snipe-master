@@ -37,7 +37,9 @@ export const Route = createFileRoute("/api/rpc")({
 
         const body = await request.text();
         let lastDetail = "no upstreams tried";
-        for (const url of upstreams) {
+        for (let i = 0; i < upstreams.length; i++) {
+          const url = upstreams[i];
+          const isLast = i === upstreams.length - 1;
           try {
             const upstream = await fetch(url, {
               method: "POST",
@@ -48,6 +50,13 @@ export const Route = createFileRoute("/api/rpc")({
             // If upstream 5xx'd, try the next one; otherwise return.
             if (upstream.status >= 500) {
               lastDetail = `HTTP ${upstream.status} from upstream`;
+              continue;
+            }
+            // Some upstreams (e.g. RPCFast free tier) reject common methods
+            // like getBalance with "unsupported method". Fail over to the
+            // next upstream instead of returning that error to the client.
+            if (!isLast && /"unsupported method"/i.test(text)) {
+              lastDetail = "upstream rejected method as unsupported";
               continue;
             }
             return new Response(text, {
