@@ -172,19 +172,12 @@ function RootComponent() {
 }
 
 function AppShell() {
-  const path = useRouterState({ select: (r) => r.location.pathname });
   return (
     <>
       <ServiceRoleWarning />
-      {path === "/auth" || path.startsWith("/auth/") ? (
+      <AppLayout>
         <Outlet />
-      ) : (
-        <AuthGate>
-          <AppLayout>
-            <Outlet />
-          </AppLayout>
-        </AuthGate>
-      )}
+      </AppLayout>
     </>
   );
 }
@@ -212,132 +205,4 @@ function AppLayout({ children }: { children: ReactNode }) {
   );
 }
 
-function AuthGate({ children }: { children: ReactNode }) {
-  const session = useAuthSession();
-  const loggedRedirectRef = useRef(false);
-  const [hydrated, setHydrated] = useState(false);
-  const [watchdogTripped, setWatchdogTripped] = useState(false);
-
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (session !== undefined) {
-      setWatchdogTripped(false);
-      return;
-    }
-    const t = window.setTimeout(() => {
-      setWatchdogTripped(true);
-      logStructured(new Error("auth session resolve timed out"), {
-        category: "wallet",
-        severity: "warning",
-        silent: true,
-        context: { op: "auth-gate-watchdog" },
-      });
-    }, 6000);
-    return () => window.clearTimeout(t);
-  }, [session]);
-
-  if (!hydrated || session === undefined) {
-    if (watchdogTripped) return <SessionTimeoutFallback />;
-    return <AppShellSkeleton />;
-  }
-
-  if (session === null) {
-    if (!loggedRedirectRef.current) {
-      loggedRedirectRef.current = true;
-      logStructured(new Error("no active session — redirecting to sign-in"), {
-        category: "wallet",
-        severity: "info",
-        silent: true,
-        context: { op: "auth-gate-redirect" },
-      });
-    }
-    return <AuthScreen />;
-  }
-  return <>{children}</>;
-}
-
-function SessionTimeoutFallback() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-primary" />
-            <CardTitle>Taking longer than expected</CardTitle>
-          </div>
-          <CardDescription>
-            We couldn't confirm your session in time. The auth service may be slow or unreachable.
-            You can retry, or sign in again.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Alert>
-            <AlertTitle className="text-xs">What happened</AlertTitle>
-            <AlertDescription className="text-xs text-muted-foreground">
-              The session check exceeded 6 seconds without resolving.
-            </AlertDescription>
-          </Alert>
-          <div className="flex gap-2">
-            <Button className="flex-1 gap-1.5" onClick={() => window.location.reload()}>
-              <Loader2 className="h-4 w-4" /> Retry
-            </Button>
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={async () => {
-                try {
-                  await supabase.auth.signOut();
-                } catch {
-                  /* ignore */
-                }
-                window.location.href = "/";
-              }}
-            >
-              Sign in again
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function AuthScreen() {
-  const walletReady = useWalletReady();
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-primary" />
-            <CardTitle>Sign in to SniperBot</CardTitle>
-          </div>
-          <CardDescription>
-            Connect your Solana wallet and sign a one-time challenge. No transaction, no gas.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {walletReady ? (
-            <LazySiwsPanel />
-          ) : (
-            <Button disabled className="w-full gap-1.5">
-              <Wallet className="h-4 w-4" /> Loading wallet…
-            </Button>
-          )}
-          <Alert>
-            <AlertTitle className="text-xs">How access works</AlertTitle>
-            <AlertDescription className="text-xs text-muted-foreground">
-              New wallets start with <span className="font-mono">viewer</span> access. An admin can
-              promote you to <span className="font-mono">trader</span> to control the bot.
-            </AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
 
