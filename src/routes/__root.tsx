@@ -12,12 +12,10 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
-  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { Loader2, ShieldCheck, Wallet } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -28,7 +26,6 @@ import { StatusStrip } from "@/components/status-strip";
 import { Toaster } from "@/components/ui/sonner";
 import { useBotSimulator } from "@/hooks/use-bot-simulator";
 import { SolanaProviders } from "@/lib/solana-provider";
-import { useAuthSession } from "@/hooks/use-auth-session";
 import { useServerPersistence } from "@/hooks/use-server-persistence";
 import { useCouncilMemory } from "@/hooks/use-council-memory";
 import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
@@ -36,16 +33,9 @@ import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 import { SchemaCheckBanner } from "@/components/schema-check-banner";
-import { AppShellSkeleton } from "@/components/app-shell-skeleton";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { LazyLiveExecutorMount, LazySiwsPanel } from "@/components/wallet-lazy";
+import { LazyLiveExecutorMount } from "@/components/wallet-lazy";
 import { ServiceRoleWarning } from "@/components/service-role-warning";
-import { supabase } from "@/integrations/supabase/client";
 
-
-import { logStructured } from "@/lib/structured-logger";
 
 function NotFoundComponent() {
   return (
