@@ -55,7 +55,7 @@ export const Route = createFileRoute("/api/rpc")({
             // Some upstreams (e.g. RPCFast free tier) reject common methods
             // like getBalance with "unsupported method". Fail over to the
             // next upstream instead of returning that error to the client.
-            if (!isLast && /"unsupported method"/i.test(text)) {
+            if (!isLast && /unsupported method/i.test(text)) {
               lastDetail = "upstream rejected method as unsupported";
               continue;
             }
