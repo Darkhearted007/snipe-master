@@ -33,7 +33,7 @@ function AdminPage() {
     );
   }
   if (!session) {
-    navigate({ to: "/auth" });
+    navigate({ to: "/" });
     return null;
   }
   if (!allowed) {

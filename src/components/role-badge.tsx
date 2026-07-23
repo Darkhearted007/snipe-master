@@ -48,7 +48,7 @@ export function RoleBadge() {
     qc.clear();
     await supabase.auth.signOut();
     toast("Signed out");
-    navigate({ to: "/auth", replace: true });
+    navigate({ to: "/", replace: true });
   };
 
   return (
