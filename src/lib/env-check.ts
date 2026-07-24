@@ -13,15 +13,21 @@ export type SupabaseEnvStatus =
   | { ok: true; url: string; key: string }
   | { ok: false; missing: string[] };
 
+// Publishable (anon) fallbacks — safe to ship in client bundle. These are
+// used ONLY if Vite fails to inline the env vars at build time, so the app
+// never relapses into the "Backend configuration missing" screen.
+const FALLBACK_URL = "https://wqpykfbacsczqvvigaqr.supabase.co";
+const FALLBACK_KEY = "sb_publishable_9CcocmqcwnlO84vCVvrSKg_g2RrxgGG";
+
 export function getSupabaseEnvStatus(): SupabaseEnvStatus {
   const url =
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
     (typeof process !== "undefined" && process.env?.SUPABASE_URL) ||
-    "";
+    FALLBACK_URL;
   const key =
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY) ||
     (typeof process !== "undefined" && process.env?.SUPABASE_PUBLISHABLE_KEY) ||
-    "";
+    FALLBACK_KEY;
 
   const missing: string[] = [];
   if (!url) missing.push("SUPABASE_URL");
