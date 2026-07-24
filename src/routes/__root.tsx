@@ -35,6 +35,8 @@ import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 import { SchemaCheckBanner } from "@/components/schema-check-banner";
 import { LazyLiveExecutorMount } from "@/components/wallet-lazy";
 import { ServiceRoleWarning } from "@/components/service-role-warning";
+import { getSupabaseEnvStatus } from "@/lib/env-check";
+import { ConfigErrorScreen } from "@/components/config-error-screen";
 
 
 function NotFoundComponent() {
@@ -162,6 +164,8 @@ function RootComponent() {
 }
 
 function AppShell() {
+  const env = getSupabaseEnvStatus();
+  if (!env.ok) return <ConfigErrorScreen missing={env.missing} />;
   return (
     <>
       <ServiceRoleWarning />
