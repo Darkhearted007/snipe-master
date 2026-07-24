@@ -121,5 +121,5 @@ export interface TradeHistoryEntry {
   settledAt?: number;
 }
 
-export const PLATFORM_FEE_WALLET = "CQf2TBVCtKAjJw1mEGpEYPVn7MUgGJ87wP4esHJhftsF";
+export const PLATFORM_FEE_WALLET = "Gnh9qqJgVGna9yQ8Hc9mzV6bL95Z4eJkmxjPAGkqRnRA";
 export const MIN_USER_DEPOSIT_SOL = 0.1;
