@@ -5,6 +5,7 @@ export interface SchemaCheckResult {
   tableExists: boolean;
   functionExists: boolean;
   error?: string;
+  errorKind?: "table_missing" | "network" | "permission" | "unknown";
 }
 
 /**
@@ -35,19 +36,49 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
       // PostgREST). Its presence is guaranteed by the migration; treat as OK.
       const functionExists = true;
 
+      if (tableExists) {
+        return {
+          ok: true,
+          tableExists,
+          functionExists,
+        };
+      }
+
+      const message = tableRes.error?.message ?? "Unknown Supabase error";
+      const code = tableRes.error?.code;
+      const errorKind: SchemaCheckResult["errorKind"] =
+        code === "42P01" || /does not exist/i.test(message)
+          ? "table_missing"
+          : /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
+            ? "network"
+            : /permission|not authorized|forbidden|401|403/i.test(message)
+              ? "permission"
+              : "unknown";
+
       return {
-        ok: tableExists && functionExists,
+        ok: false,
         tableExists,
         functionExists,
-        error: tableRes.error?.message,
+        error: message,
+        errorKind,
       };
-
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      const errorKind: SchemaCheckResult["errorKind"] =
+        /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
+          ? "network"
+          : /permission|not authorized|forbidden|401|403/i.test(message)
+            ? "permission"
+            : /does not exist|42P01/i.test(message)
+              ? "table_missing"
+              : "unknown";
+
       return {
         ok: false,
         tableExists: false,
         functionExists: false,
-        error: e instanceof Error ? e.message : String(e),
+        error: message,
+        errorKind,
       };
     }
   },
