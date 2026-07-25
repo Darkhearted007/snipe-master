@@ -21,6 +21,7 @@ export function SchemaCheckBanner() {
             tableExists: false,
             functionExists: false,
             error: e instanceof Error ? e.message : String(e),
+            errorKind: "unknown",
           });
         }
       });
@@ -35,18 +36,33 @@ export function SchemaCheckBanner() {
   if (!result.tableExists) missing.push("public.discovery_candidates table");
   if (!result.functionExists) missing.push("prune_stale_discovery_candidates() function");
 
+  const headline =
+    result.errorKind === "network"
+      ? "Discovery backend unreachable"
+      : result.errorKind === "permission"
+        ? "Discovery access blocked"
+        : result.errorKind === "table_missing"
+          ? "Database migration pending"
+          : "Discovery check failed";
+
+  const detail =
+    result.errorKind === "network"
+      ? "Discovery is offline because the backend request failed. Check the API URL, proxy, CORS, and server availability."
+      : result.errorKind === "permission"
+        ? "Discovery is offline because the backend returned an authorization error. Check Supabase service-role access and row-level policies."
+        : result.errorKind === "table_missing"
+          ? `Discovery is offline — missing ${missing.join(" and ")}. Run the pending migration to restore token discovery.`
+          : `Discovery is offline — missing ${missing.join(" and ") || "required schema access"}.`;
+
   return (
     <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
       <div className="flex items-start gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="flex-1">
-          <div className="font-semibold">Database migration pending</div>
+          <div className="font-semibold">{headline}</div>
           <div className="mt-0.5 text-amber-200/80">
-            Discovery is offline — missing {missing.join(" and ")}. Run the pending migration to
-            restore token discovery.
-            {result.error ? (
-              <span className="ml-1 opacity-70">({result.error})</span>
-            ) : null}
+            {detail}
+            {result.error ? <span className="ml-1 opacity-70">({result.error})</span> : null}
           </div>
         </div>
         <button
