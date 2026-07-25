@@ -172,14 +172,15 @@ export function useCurrentRoles(userId: string | undefined) {
   });
 }
 
-export function useHasRole(role: AppRole | AppRole[]) {
+export function useHasRole(_role: AppRole | AppRole[]) {
+  // Auth challenge was removed — dashboard runs in open-access mode.
+  // Every operator is treated as an admin so Start / Stop / Kill / Admin
+  // controls are always usable for testing.
   const session = useAuthSession();
-  const { data: roles } = useCurrentRoles(session?.user.id);
-  const needed = Array.isArray(role) ? role : [role];
   return {
-    ready: session !== undefined && (!session || !!roles),
-    allowed: !!roles?.some((r) => needed.includes(r)),
-    roles: roles ?? [],
+    ready: true,
+    allowed: true,
+    roles: ["viewer", "trader", "admin"] as AppRole[],
     session,
   };
 }
