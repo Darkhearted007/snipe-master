@@ -8,6 +8,16 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import path from "node:path";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
+const FALLBACK_BACKEND_URL = "https://wqpykfbacsczqvvigaqr.supabase.co";
+const FALLBACK_BACKEND_PUBLISHABLE_KEY = "sb_publishable_9CcocmqcwnlO84vCVvrSKg_g2RrxgGG";
+
+const clientBackendUrl =
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || FALLBACK_BACKEND_URL;
+const clientBackendPublishableKey =
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  FALLBACK_BACKEND_PUBLISHABLE_KEY;
+
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
@@ -15,6 +25,13 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    define: {
+      // Permanent preview safety net: the generated browser backend client also
+      // checks process.env fallbacks. Defining these public values prevents the
+      // app from crashing when Vite's VITE_* injection is delayed or absent.
+      "process.env.SUPABASE_URL": JSON.stringify(clientBackendUrl),
+      "process.env.SUPABASE_PUBLISHABLE_KEY": JSON.stringify(clientBackendPublishableKey),
+    },
     plugins: [
       {
         ...nodePolyfills({
