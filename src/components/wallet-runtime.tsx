@@ -85,6 +85,7 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
   const requestLiveEntry = useBotStore((s) => s.requestLiveEntry);
   const confirmLiveEntry = useBotStore((s) => s.confirmLiveEntry);
   const failLiveEntry = useBotStore((s) => s.failLiveEntry);
+  const logAudit = useBotStore((s) => s.logAudit);
   const { executeSwap, walletReady } = useLiveExecution();
   const [busy, setBusy] = useState(false);
 
@@ -103,10 +104,11 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
         if (!gate.ok) return;
         setBusy(true);
         try {
+          const amountLamports = BigInt(Math.max(1, Math.floor(gate.sizeSol * LAMPORTS_PER_SOL))).toString();
           const result = await executeSwap({
             inputMint: SOL_MINT,
             outputMint: opp.mint!,
-            amountLamports: Math.floor(gate.sizeSol * LAMPORTS_PER_SOL),
+            amountLamports,
             slippageBps: 300,
             maxPriceImpactPct: 15,
           });
@@ -115,11 +117,22 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
             sizeSol: gate.sizeSol,
             signature: result.signature,
           });
+          logAudit(
+            `LIVE_SWAP_CONFIRMED · ${opp.symbol} · in ${amountLamports} lamports · out ${result.outAmount} · impact ${result.priceImpactPct}%`,
+            "execution",
+          );
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const stage = (err as { stage?: string }).stage;
+          logAudit(
+            `LIVE_SWAP_FAILED${stage ? ` · stage=${stage}` : ""} · ${opp.symbol} · ${message}`,
+            "error",
+          );
           failLiveEntry({
             opportunityId: opp.id,
-            reason: err instanceof Error ? err.message : String(err),
+            reason: message,
           });
+          toast.error("Live swap failed", { description: stage ? `${stage}: ${message}` : message });
         } finally {
           setBusy(false);
         }
