@@ -24,13 +24,24 @@ async function getSafetyProbeQuote(params: {
   amountLamports: number;
   slippageBps: number;
 }): Promise<{ outAmount: string; priceImpactPct: string }> {
-  const url = new URL("https://lite-api.jup.ag/swap/v1/quote");
+  // lite-api.jup.ag is deprecated (Jupiter is progressively rate-limiting it
+  // to zero in favor of api.jup.ag + x-api-key). This runs server-side only
+  // (invoked from api/discovery.ts, api/rugcheck.$mint.ts, the Helius
+  // webhook — never the browser), so it's safe to read the key here.
+  // Deliberately its own fetch/header logic — no import from jupiter.ts or
+  // jupiter-client.ts — to keep the "safety check shares no code with the
+  // thing it's checking" property intact.
+  const key = process.env.JUPITER_API_KEY;
+  const base = key ? "https://api.jup.ag/swap/v1/quote" : "https://quote-api.jup.ag/v6/quote";
+  const url = new URL(base);
   url.searchParams.set("inputMint", params.inputMint);
   url.searchParams.set("outputMint", params.outputMint);
   url.searchParams.set("amount", String(Math.floor(params.amountLamports)));
   url.searchParams.set("slippageBps", String(params.slippageBps));
   url.searchParams.set("restrictIntermediateTokens", "true");
-  const res = await fetch(url.toString(), { headers: { accept: "application/json" } });
+  const res = await fetch(url.toString(), {
+    headers: key ? { "x-api-key": key, accept: "application/json" } : { accept: "application/json" },
+  });
   if (!res.ok) {
     throw new Error(`quote HTTP ${res.status}`);
   }

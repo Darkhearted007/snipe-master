@@ -1,14 +1,27 @@
-// Real swap execution against Jupiter's public aggregator API.
-// No API key required for quote/swap. This replaces the Math.random()
-// price-drift simulator for LIVE mode only — PAPER mode keeps simulating.
+// Real swap execution against Jupiter's aggregator, routed through our own
+// server-side proxy (src/routes/api/jupiter/{quote,swap}.ts) rather than
+// calling Jupiter directly from the browser.
+//
+// This used to hit https://lite-api.jup.ag/swap/v1/* directly — Jupiter
+// deprecated lite-api.jup.ag (progressively rate-limited it to zero) in
+// favor of api.jup.ag with a required x-api-key header. The server proxy
+// already handles that correctly (uses api.jup.ag + JUPITER_API_KEY when
+// set, falls back to the older quote-api.jup.ag/v6 otherwise) — routing
+// through it here means: (1) live trades stop dying at the quote stage,
+// and (2) an API key, if you set one, stays server-side instead of
+// shipping to the browser.
+//
+// To get a free key (recommended — lite-api's replacement enforces this):
+// generate one at portal.jup.ag and set JUPITER_API_KEY in the server
+// environment. No client-side env var needed.
 //
 // Flow: getQuote() -> buildSwapTransaction() -> wallet signs (browser popup)
 // -> caller submits via connection.sendRawTransaction() and polls confirmation.
 // The private key never touches this module or the server; signing happens
 // entirely in the user's wallet extension.
 
-const JUP_QUOTE_URL = "https://lite-api.jup.ag/swap/v1/quote";
-const JUP_SWAP_URL = "https://lite-api.jup.ag/swap/v1/swap";
+const JUP_QUOTE_URL = "/api/jupiter/quote";
+const JUP_SWAP_URL = "/api/jupiter/swap";
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 export interface JupiterQuote {
@@ -47,7 +60,9 @@ export async function getQuote(params: {
   if (!Number.isFinite(amountLamports) || amountLamports <= 0) {
     throw new JupiterError("Invalid trade amount", "quote");
   }
-  const url = new URL(JUP_QUOTE_URL);
+  // JUP_QUOTE_URL is a same-origin relative path (our proxy) — new URL()
+  // needs an explicit base to resolve that; window.location.origin does it.
+  const url = new URL(JUP_QUOTE_URL, window.location.origin);
   url.searchParams.set("inputMint", inputMint);
   url.searchParams.set("outputMint", outputMint);
   url.searchParams.set("amount", String(Math.floor(amountLamports)));

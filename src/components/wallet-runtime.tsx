@@ -82,6 +82,7 @@ export function SiwsPanel() {
 
 export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
   const mode = useBotStore((s) => s.mode);
+  const checkLiveEntry = useBotStore((s) => s.checkLiveEntry);
   const requestLiveEntry = useBotStore((s) => s.requestLiveEntry);
   const confirmLiveEntry = useBotStore((s) => s.confirmLiveEntry);
   const failLiveEntry = useBotStore((s) => s.failLiveEntry);
@@ -91,7 +92,8 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
 
   if (mode !== "live" || !opp.mint) return null;
 
-  const gate = requestLiveEntry(opp.id);
+  // Pure — safe to call during render, does not touch the store.
+  const gate = checkLiveEntry(opp.id);
 
   return (
     <Button
@@ -101,10 +103,16 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
       title={gate.ok ? undefined : gate.error}
       onClick={async (e) => {
         e.stopPropagation();
-        if (!gate.ok) return;
+        // Re-check + log the request at click time (opportunity/bankroll/
+        // guardrail state may have moved since the last render).
+        const committed = requestLiveEntry(opp.id);
+        if (!committed.ok) {
+          toast.error("Live entry rejected", { description: committed.error });
+          return;
+        }
         setBusy(true);
         try {
-          const amountLamports = Math.max(1, Math.floor(gate.sizeSol * LAMPORTS_PER_SOL));
+          const amountLamports = Math.max(1, Math.floor(committed.sizeSol * LAMPORTS_PER_SOL));
           const result = await executeSwap({
             inputMint: SOL_MINT,
             outputMint: opp.mint!,
@@ -114,7 +122,7 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
           });
           confirmLiveEntry({
             opportunityId: opp.id,
-            sizeSol: gate.sizeSol,
+            sizeSol: committed.sizeSol,
             signature: result.signature,
           });
           logAudit(
