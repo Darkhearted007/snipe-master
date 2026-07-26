@@ -445,8 +445,12 @@ export const useBotStore = create<BotState>()(
             const cap = s.guardrails.adaptiveSizing
               ? bankroll * (0.05 + (confidence / 100) * 0.35)
               : Math.min(s.guardrails.maxPositionSol, bankroll * 0.25);
-            const sizeSol = Math.max(MIN_USER_DEPOSIT_SOL, Math.min(cap, bankroll * 0.9));
-            if (sizeSol <= bankroll && sizeSol > 0) {
+            // NOTE: previously floored at MIN_USER_DEPOSIT_SOL (0.1), which is
+            // the *account* minimum deposit, not a per-trade minimum — that
+            // silently blew through the maxPositionSol guardrail on small
+            // bankrolls. Respect the guardrail cap; just require a non-dust size.
+            const sizeSol = Math.min(cap, bankroll * 0.9);
+            if (sizeSol <= bankroll && sizeSol > 0.001) {
               const price = 0.5 + Math.random() * 4;
               remaining.unshift({
                 id: id(), token, mint, decimals, venue,
