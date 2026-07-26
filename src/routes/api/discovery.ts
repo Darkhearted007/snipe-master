@@ -202,9 +202,28 @@ export const Route = createFileRoute("/api/discovery")({
             });
           }
 
+          // Table reachable but empty (no webhook traffic yet) — top up from
+          // DexScreener so discovery is never reported as offline/empty.
+          if (!data || data.length === 0) {
+            const candidates = await fetchDexScreenerFallbackCandidates();
+            return new Response(
+              JSON.stringify({
+                candidates,
+                source: "dexscreener-fallback",
+                diagnostics: [
+                  {
+                    stage: "supabase",
+                    reason: "discovery_candidates reachable but empty; used DexScreener live pairs",
+                  },
+                ],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json", ...CORS } },
+            );
+          }
+
           return new Response(
             JSON.stringify({
-              candidates: data ?? [],
+              candidates: data,
               source: "supabase",
               diagnostics: [],
             }),
