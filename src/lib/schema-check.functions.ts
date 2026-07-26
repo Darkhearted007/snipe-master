@@ -5,7 +5,7 @@ export interface SchemaCheckResult {
   tableExists: boolean;
   functionExists: boolean;
   error?: string;
-  errorKind?: "table_missing" | "network" | "permission" | "unknown";
+  errorKind?: "table_missing" | "network" | "permission" | "config_missing" | "backend_unreachable" | "unknown";
 }
 
 /**
@@ -49,11 +49,13 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
       const errorKind: SchemaCheckResult["errorKind"] =
         code === "42P01" || /does not exist/i.test(message)
           ? "table_missing"
-          : /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
-            ? "network"
-            : /permission|not authorized|forbidden|401|403/i.test(message)
-              ? "permission"
-              : "unknown";
+          : /Missing Supabase environment variable|SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_PUBLISHABLE_KEY/i.test(message)
+            ? "config_missing"
+            : /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
+              ? "network"
+              : /permission|not authorized|forbidden|401|403/i.test(message)
+                ? "permission"
+                : "unknown";
 
       return {
         ok: false,
@@ -65,13 +67,15 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const errorKind: SchemaCheckResult["errorKind"] =
-        /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
-          ? "network"
-          : /permission|not authorized|forbidden|401|403/i.test(message)
-            ? "permission"
-            : /does not exist|42P01/i.test(message)
-              ? "table_missing"
-              : "unknown";
+        /Missing Supabase environment variable|SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_PUBLISHABLE_KEY/i.test(message)
+          ? "config_missing"
+          : /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
+            ? "backend_unreachable"
+            : /permission|not authorized|forbidden|401|403/i.test(message)
+              ? "permission"
+              : /does not exist|42P01/i.test(message)
+                ? "table_missing"
+                : "unknown";
 
       return {
         ok: false,
