@@ -37,22 +37,26 @@ export function SchemaCheckBanner() {
   if (!result.functionExists) missing.push("prune_stale_discovery_candidates() function");
 
   const headline =
-    result.errorKind === "network"
+    result.errorKind === "network" || result.errorKind === "backend_unreachable"
       ? "Discovery backend unreachable"
-      : result.errorKind === "permission"
-        ? "Discovery access blocked"
-        : result.errorKind === "table_missing"
-          ? "Database migration pending"
-          : "Discovery check failed";
+      : result.errorKind === "config_missing"
+        ? "Discovery backend misconfigured"
+        : result.errorKind === "permission"
+          ? "Discovery access blocked"
+          : result.errorKind === "table_missing"
+            ? "Discovery storage missing"
+            : "Discovery check failed";
 
   const detail =
-    result.errorKind === "network"
-      ? "Discovery is offline because the backend request failed. Check the API URL, proxy, CORS, and server availability."
-      : result.errorKind === "permission"
-        ? "Discovery is offline because the backend returned an authorization error. Check Supabase service-role access and row-level policies."
-        : result.errorKind === "table_missing"
-          ? `Discovery is offline — missing ${missing.join(" and ")}. Run the pending migration to restore token discovery.`
-          : `Discovery is offline — missing ${missing.join(" and ") || "required schema access"}.`;
+    result.errorKind === "network" || result.errorKind === "backend_unreachable"
+      ? "Supabase is unavailable right now. The app will fall back to DexScreener/Raydium polling, but discovery persistence is degraded until the backend recovers."
+      : result.errorKind === "config_missing"
+        ? "Supabase environment variables are missing or invalid. Discovery will fall back to DexScreener/Raydium polling until the backend is configured."
+        : result.errorKind === "permission"
+          ? "Discovery is reachable but access is blocked. Check service-role access and row-level policies."
+          : result.errorKind === "table_missing"
+            ? `Discovery storage is missing — ${missing.join(" and ")}. The app will continue with fallback discovery, but database persistence needs the pending migration.`
+            : `Discovery check failed — ${missing.join(" and ") || "required schema access"}. Fallback discovery remains active.`;
 
   return (
     <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
