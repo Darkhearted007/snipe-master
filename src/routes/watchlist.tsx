@@ -30,13 +30,26 @@ import {
   CheckCircle2,
   Filter,
   Loader2,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
 import { useBotStore } from "@/lib/bot-store";
-import type { Venue, WatchSource } from "@/lib/bot-types";
+import type { SafetyFilters, Venue, WatchSource } from "@/lib/bot-types";
+
+// Mirrors the initial safetyFilters in bot-store.ts. Kept as an explicit
+// constant (rather than reading store.getState() defaults, which aren't
+// exposed) so "Reset to defaults" always lands on a known-good, permissive
+// baseline — not whatever happened to be persisted in localStorage.
+const DEFAULT_SAFETY_FILTERS: SafetyFilters = {
+  minSafety: 60,
+  minLiquiditySol: 5,
+  requireLpLocked: true,
+  blockHoneypots: true,
+  maxHolderConcentrationPct: 25,
+};
 import { cn } from "@/lib/utils";
 import { isSafetyVerdict, useTokenSafety } from "@/hooks/use-token-safety";
 
@@ -157,9 +170,23 @@ function WatchlistPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-1.5 text-sm font-medium">
-              <Filter className="h-4 w-4 text-warning" />
-              Safety filters
+            <CardTitle className="flex items-center justify-between text-sm font-medium">
+              <span className="flex items-center gap-1.5">
+                <Filter className="h-4 w-4 text-warning" />
+                Safety filters
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs text-muted-foreground"
+                onClick={() => {
+                  setSafetyFilters(DEFAULT_SAFETY_FILTERS);
+                  toast.success("Safety filters reset to defaults");
+                }}
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset to defaults
+              </Button>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">

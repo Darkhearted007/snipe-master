@@ -29,6 +29,8 @@ const MAX_LOG = 300;
 const MAX_EQUITY = 120;
 const MAX_HISTORY = 200;
 
+// Synthetic symbols for paper-mode's local candidate generator only — not
+// real mints, never touches live trading. Expanded for more feed variety.
 const TOKENS = [
   "PEPE2",
   "BONKX",
@@ -44,6 +46,22 @@ const TOKENS = [
   "ALPHA",
   "OMEGA",
   "NOVA",
+  "ZAPX",
+  "FROGE",
+  "LAZR",
+  "COMET",
+  "DEGEN2",
+  "SHRIMPX",
+  "VOLT",
+  "PIXEL",
+  "RUGX",
+  "GHOST",
+  "APEX2",
+  "FLUX",
+  "CROWN",
+  "ECHO",
+  "BLAZE",
+  "ORBIT",
 ];
 
 function rand<T>(arr: T[]): T {
