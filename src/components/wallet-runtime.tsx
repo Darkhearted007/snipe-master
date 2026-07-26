@@ -104,7 +104,7 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
         if (!gate.ok) return;
         setBusy(true);
         try {
-          const amountLamports = BigInt(Math.max(1, Math.floor(gate.sizeSol * LAMPORTS_PER_SOL))).toString();
+          const amountLamports = Math.max(1, Math.floor(gate.sizeSol * LAMPORTS_PER_SOL));
           const result = await executeSwap({
             inputMint: SOL_MINT,
             outputMint: opp.mint!,
@@ -118,14 +118,14 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
             signature: result.signature,
           });
           logAudit(
-            `LIVE_SWAP_CONFIRMED · ${opp.symbol} · in ${amountLamports} lamports · out ${result.outAmount} · impact ${result.priceImpactPct}%`,
+            `LIVE_SWAP_CONFIRMED · ${opp.token} · in ${amountLamports} lamports · out ${result.outAmount} · impact ${result.priceImpactPct}%`,
             "execution",
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           const stage = (err as { stage?: string }).stage;
           logAudit(
-            `LIVE_SWAP_FAILED${stage ? ` · stage=${stage}` : ""} · ${opp.symbol} · ${message}`,
+            `LIVE_SWAP_FAILED${stage ? ` · stage=${stage}` : ""} · ${opp.token} · ${message}`,
             "error",
           );
           failLiveEntry({

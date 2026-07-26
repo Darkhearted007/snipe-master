@@ -34,6 +34,15 @@ export interface Opportunity {
   confidence: number;
   decision: "enter" | "skip";
   reason?: string;
+  // Optional enrichment written by live discovery / safety pipelines.
+  symbol?: string;
+  score?: number;
+  safetyScore?: number;
+  entryPrice?: number;
+  price?: number;
+  live?: boolean;
+  tokenAddress?: string | null;
+  verdict?: "safe" | "caution" | "danger" | "unknown";
 }
 
 export interface Position {
