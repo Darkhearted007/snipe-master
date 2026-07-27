@@ -88,6 +88,23 @@ function venueFromDiscovery(v: string): Venue {
   return "raydium";
 }
 
+/** Logs a rejected live-entry attempt as an audit-visible ENTRY_SKIPPED
+ *  event (instead of only surfacing via a toast the clicking user sees),
+ *  and counts it toward skipsToday. Called from requestLiveEntry only —
+ *  never from checkLiveEntry, which must stay a pure/no-write function
+ *  safe to call during render. */
+function guardrailReject(cur: BotState, reason: string, opportunityId?: string, symbol?: string) {
+  return {
+    skipsToday: cur.skipsToday + 1,
+    log: prepend(cur.log, {
+      id: id(),
+      ts: Date.now(),
+      type: "error" as const,
+      summary: `ENTRY_SKIPPED${symbol ? ` · ${symbol}` : ""}${opportunityId ? ` · ${opportunityId}` : ""} · ${reason}`,
+    }).slice(0, MAX_LOG),
+  };
+}
+
 interface BotState {
   mode: BotMode;
   status: BotStatus;
@@ -554,7 +571,7 @@ export const useBotStore = create<BotState>()(
       // this were called again during render) would re-trigger the same
       // check — spams the log and can runaway into infinite re-renders.
       // Use checkLiveEntry (pure, no side effects) for render-time gating.
-      requestLiveEntry: (opportunityId: string) => { const s = get(); const gate = s.checkLiveEntry(opportunityId); if (!gate.ok) return gate; const opportunity = s.opportunities.find((o) => o.id === opportunityId)!; set((cur) => ({ log: prepend(cur.log, { id: id(), ts: Date.now(), type: "execution", summary: `ENTRY_REQUESTED · ${opportunity.symbol} · size ${gate.sizeSol.toFixed(5)} SOL · score ${opportunity.safetyScore ?? opportunity.score ?? 0}` }).slice(0, MAX_LOG) })); return gate; },
+      requestLiveEntry: (opportunityId: string) => { const s = get(); const gate = s.checkLiveEntry(opportunityId); const opportunity = s.opportunities.find((o) => o.id === opportunityId); if (!gate.ok) { set((cur) => guardrailReject(cur, gate.error, opportunityId, opportunity?.symbol)); return gate; } set((cur) => ({ log: prepend(cur.log, { id: id(), ts: Date.now(), type: "execution", summary: `ENTRY_REQUESTED · ${opportunity!.symbol} · size ${gate.sizeSol.toFixed(5)} SOL · score ${opportunity!.safetyScore ?? opportunity!.score ?? 0}` }).slice(0, MAX_LOG) })); return gate; },
       confirmLiveEntry: ({ opportunityId, sizeSol, signature }) => { const s = get(); const opp = s.opportunities.find((o) => o.id === opportunityId); if (!opp) return; const tokenAddress = (opp as Opportunity & { tokenAddress?: string | null }).tokenAddress; const positionId = id(); const position: Position = { id: positionId, token: opp.token, venue: opp.venue, sizeSol, entry: opp.entryPrice ?? opp.price ?? 0, current: opp.entryPrice ?? opp.price ?? 0, live: true, tp: 0, sl: 0, mintAddress: tokenAddress ?? null, openedAt: Date.now() } as Position; set((cur) => ({ positions: [position, ...cur.positions].slice(0, MAX_HISTORY), bankroll: Math.max(0, cur.bankroll - sizeSol), walletBalanceSol: cur.walletBalanceSol == null ? null : Math.max(0, cur.walletBalanceSol - sizeSol), tradesToday: cur.tradesToday + 1, log: prepend(cur.log, { id: id(), ts: Date.now(), type: "execution", summary: `ENTRY_EXECUTED · ${opp.symbol} · size ${sizeSol.toFixed(5)} SOL · sig ${signature.slice(0, 8)}…` }).slice(0, MAX_LOG) })); },
       failLiveEntry: ({ opportunityId, reason }) => set((cur) => ({ skipsToday: cur.skipsToday + 1, log: prepend(cur.log, { id: id(), ts: Date.now(), type: "error", summary: `ENTRY_FAILED · ${opportunityId} · ${reason}` }).slice(0, MAX_LOG) })),
       pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress }) => { const s = get(); if (!s.activeVenues[venue]) return null; if (!Number.isFinite(liquiditySol) || liquiditySol <= 0) return null; const oppId = id(); const score = Math.min(99, Math.max(1, Math.floor(50 + liquiditySol / 10))); const opportunity: Opportunity = { id: oppId, ts: Date.now(), token, symbol, venue, liquiditySol, score, safety: -1, confidence: score, decision: "skip", live: s.mode === "live" }; set((cur) => ({ opportunities: [opportunity, ...cur.opportunities].slice(0, MAX_FEED), log: prepend(cur.log, { id: id(), ts: Date.now(), type: "audit", summary: `POOL_ACCEPTED · ${symbol} · liq ${liquiditySol.toFixed(2)} SOL · score ${score}` }).slice(0, MAX_LOG) })); return oppId; },
