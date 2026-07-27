@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  findServiceRoleInText,
-  scanBrowserStorage,
-} from "@/lib/service-role-detector";
+import { findServiceRoleInText, scanBrowserStorage } from "@/lib/service-role-detector";
 import { logStructured } from "@/lib/structured-logger";
 
 type Detection =
@@ -61,7 +58,8 @@ export function ServiceRoleWarning() {
       if (findServiceRoleInText(val)) {
         setDetection({
           source: "input",
-          where: target.tagName.toLowerCase() +
+          where:
+            target.tagName.toLowerCase() +
             (target.getAttribute("name") ? `[name=${target.getAttribute("name")}]` : ""),
         });
         setDismissed(false);
@@ -90,8 +88,8 @@ export function ServiceRoleWarning() {
             <AlertDescription className="mt-1 space-y-1 text-xs">
               <p>
                 A <span className="font-mono">service_role</span> JWT was found in{" "}
-                <span className="font-mono">{detection.where}</span> ({detection.source}).
-                This key has full admin access and bypasses RLS. Treat it as compromised.
+                <span className="font-mono">{detection.where}</span> ({detection.source}). This key
+                has full admin access and bypasses RLS. Treat it as compromised.
               </p>
               <ol className="ml-4 list-decimal space-y-0.5">
                 <li>Open your Supabase project → Settings → API.</li>
@@ -100,8 +98,8 @@ export function ServiceRoleWarning() {
                 </li>
                 <li>Update any server-side integrations using the old key.</li>
                 <li>
-                  Never paste service_role into the browser, chat, or client code — it belongs
-                  only in server-side secrets.
+                  Never paste service_role into the browser, chat, or client code — it belongs only
+                  in server-side secrets.
                 </li>
               </ol>
             </AlertDescription>

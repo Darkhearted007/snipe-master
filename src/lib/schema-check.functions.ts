@@ -5,7 +5,13 @@ export interface SchemaCheckResult {
   tableExists: boolean;
   functionExists: boolean;
   error?: string;
-  errorKind?: "table_missing" | "network" | "permission" | "config_missing" | "backend_unreachable" | "unknown";
+  errorKind?:
+    | "table_missing"
+    | "network"
+    | "permission"
+    | "config_missing"
+    | "backend_unreachable"
+    | "unknown";
 }
 
 /**
@@ -19,7 +25,10 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       const admin = supabaseAdmin as unknown as {
         from(table: string): {
-          select(cols: string, opts: { head: true; count: "exact" }): {
+          select(
+            cols: string,
+            opts: { head: true; count: "exact" },
+          ): {
             limit(n: number): Promise<{ error: { message: string; code?: string } | null }>;
           };
         };
@@ -49,7 +58,9 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
       const errorKind: SchemaCheckResult["errorKind"] =
         code === "42P01" || /does not exist/i.test(message)
           ? "table_missing"
-          : /Missing Supabase environment variable|SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_PUBLISHABLE_KEY/i.test(message)
+          : /Missing Supabase environment variable|SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_PUBLISHABLE_KEY/i.test(
+                message,
+              )
             ? "config_missing"
             : /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
               ? "network"
@@ -67,7 +78,9 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const errorKind: SchemaCheckResult["errorKind"] =
-        /Missing Supabase environment variable|SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_PUBLISHABLE_KEY/i.test(message)
+        /Missing Supabase environment variable|SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_PUBLISHABLE_KEY/i.test(
+          message,
+        )
           ? "config_missing"
           : /fetch failed|network|timeout|ECONN|ENOTFOUND|CORS/i.test(message)
             ? "backend_unreachable"

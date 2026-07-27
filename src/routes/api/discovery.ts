@@ -19,13 +19,24 @@ interface DiscoveryQueryBuilder {
   is(column: string, value: unknown): this;
   lt(column: string, value: unknown): this;
   order(column: string, opts: { ascending: boolean }): this;
-  limit(n: number): Promise<{ data: DiscoveryRow[] | null; error: { message: string; code?: string } | null }>;
+  limit(
+    n: number,
+  ): Promise<{ data: DiscoveryRow[] | null; error: { message: string; code?: string } | null }>;
   update(values: Partial<DiscoveryRow>): {
-    eq(column: string, value: unknown): Promise<{ error: { message: string; code?: string } | null }>;
+    eq(
+      column: string,
+      value: unknown,
+    ): Promise<{ error: { message: string; code?: string } | null }>;
   };
   delete(): {
-    is(column: string, value: unknown): {
-      lt(column: string, value: unknown): Promise<{ error: { message: string; code?: string } | null }>;
+    is(
+      column: string,
+      value: unknown,
+    ): {
+      lt(
+        column: string,
+        value: unknown,
+      ): Promise<{ error: { message: string; code?: string } | null }>;
     };
   };
 }
@@ -98,7 +109,9 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
         decimals: 6,
         venue: mapDexVenue(pair.dexId),
         symbol: `${pair.baseToken?.symbol ?? "?"}/${pair.quoteToken?.symbol ?? "?"}`,
-        discovered_at: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : new Date().toISOString(),
+        discovered_at: pair.pairCreatedAt
+          ? new Date(pair.pairCreatedAt).toISOString()
+          : new Date().toISOString(),
         safety_score: null,
         liquidity_usd: pair.liquidity?.usd ?? null,
       });
@@ -110,9 +123,16 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
   return [...rows.values()];
 }
 
-function structuredDiscoveryError(stage: DiscoveryDiagnostics["stage"], error: unknown, url?: string): DiscoveryDiagnostics {
+function structuredDiscoveryError(
+  stage: DiscoveryDiagnostics["stage"],
+  error: unknown,
+  url?: string,
+): DiscoveryDiagnostics {
   const message = error instanceof Error ? error.message : String(error);
-  const body = typeof error === "object" && error && "body" in error ? String((error as { body?: unknown }).body ?? "") : undefined;
+  const body =
+    typeof error === "object" && error && "body" in error
+      ? String((error as { body?: unknown }).body ?? "")
+      : undefined;
   return {
     stage,
     reason: message,
@@ -132,7 +152,10 @@ export const Route = createFileRoute("/api/discovery")({
           const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
           admin = supabaseAdmin as unknown as AdminClient;
         } catch (error) {
-          console.error("[discovery] supabase client init failed", structuredDiscoveryError("supabase", error));
+          console.error(
+            "[discovery] supabase client init failed",
+            structuredDiscoveryError("supabase", error),
+          );
           const candidates = await fetchDexScreenerFallbackCandidates();
           return new Response(
             JSON.stringify({
@@ -234,7 +257,10 @@ export const Route = createFileRoute("/api/discovery")({
           );
         } catch (error) {
           const diagnostics = structuredDiscoveryError("supabase", error);
-          console.error("[discovery] supabase unavailable; falling back to DexScreener", diagnostics);
+          console.error(
+            "[discovery] supabase unavailable; falling back to DexScreener",
+            diagnostics,
+          );
           const candidates = await fetchDexScreenerFallbackCandidates();
           return new Response(
             JSON.stringify({

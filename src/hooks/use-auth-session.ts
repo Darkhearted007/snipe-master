@@ -12,8 +12,9 @@ function readPersistedSupabaseSession(): Session | null {
     const ref = url?.match(/https?:\/\/([^.]+)\./)?.[1];
     const keys = ref
       ? [`sb-${ref}-auth-token`]
-      : Array.from({ length: window.localStorage.length }, (_, i) =>
-          window.localStorage.key(i) ?? "",
+      : Array.from(
+          { length: window.localStorage.length },
+          (_, i) => window.localStorage.key(i) ?? "",
         ).filter((key) => key.startsWith("sb-") && key.endsWith("-auth-token"));
 
     for (const key of keys) {
@@ -104,7 +105,6 @@ export function useAuthSession() {
         initialResolved = true;
         commit(readPersistedSupabaseSession());
       });
-
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (!mounted) return;

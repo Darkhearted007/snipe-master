@@ -70,17 +70,17 @@ export const loadCouncilMemory = createServerFn({ method: "POST" })
       .order("created_at", { ascending: false })
       .limit(data.limit);
     if (error) throw new Error(error.message);
-    const entries: CouncilMemoryRow[] = ((rows ?? []) as unknown as Array<Record<string, unknown>>).map(
-      (r) => ({
-        id: String(r.id ?? ""),
-        cycle_id: String(r.cycle_id ?? ""),
-        agent: (r.agent as CouncilMemoryRow["agent"]) ?? "council",
-        summary: String(r.summary ?? ""),
-        insights_json: JSON.stringify(r.insights ?? {}),
-        pnl_delta_sol: Number(r.pnl_delta_sol ?? 0),
-        trades_in_window: Number(r.trades_in_window ?? 0),
-        created_at: String(r.created_at ?? ""),
-      }),
-    );
+    const entries: CouncilMemoryRow[] = (
+      (rows ?? []) as unknown as Array<Record<string, unknown>>
+    ).map((r) => ({
+      id: String(r.id ?? ""),
+      cycle_id: String(r.cycle_id ?? ""),
+      agent: (r.agent as CouncilMemoryRow["agent"]) ?? "council",
+      summary: String(r.summary ?? ""),
+      insights_json: JSON.stringify(r.insights ?? {}),
+      pnl_delta_sol: Number(r.pnl_delta_sol ?? 0),
+      trades_in_window: Number(r.trades_in_window ?? 0),
+      created_at: String(r.created_at ?? ""),
+    }));
     return { ok: true, entries };
   });
