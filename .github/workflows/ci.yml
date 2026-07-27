@@ -37,11 +37,13 @@ jobs:
           OUTPUT=$(bun run lint 2>&1)
           CODE=$?
           echo "$OUTPUT"
+          echo "LINT_EXIT_CODE=$CODE"
           if [ $CODE -ne 0 ]; then
-            echo "$OUTPUT" | head -60 | while IFS= read -r line; do
-              esc=$(printf '%s' "$line" | sed 's/%/%25/g' | tr '\n' ' ')
-              echo "::error::$esc"
+            FLAT=$(printf '%s' "$OUTPUT" | tr '\n' '|')
+            printf '%s' "$FLAT" | fold -w 800 | while IFS= read -r chunk; do
+              echo "::error::$chunk"
             done
+            echo "::error::EXIT_CODE=$CODE"
           fi
           exit $CODE
 
