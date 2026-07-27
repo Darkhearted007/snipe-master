@@ -40,7 +40,9 @@ async function getSafetyProbeQuote(params: {
   url.searchParams.set("slippageBps", String(params.slippageBps));
   url.searchParams.set("restrictIntermediateTokens", "true");
   const res = await fetch(url.toString(), {
-    headers: key ? { "x-api-key": key, accept: "application/json" } : { accept: "application/json" },
+    headers: key
+      ? { "x-api-key": key, accept: "application/json" }
+      : { accept: "application/json" },
   });
   if (!res.ok) {
     throw new Error(`quote HTTP ${res.status}`);

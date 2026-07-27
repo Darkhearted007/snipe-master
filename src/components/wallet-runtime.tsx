@@ -140,7 +140,9 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
             opportunityId: opp.id,
             reason: message,
           });
-          toast.error("Live swap failed", { description: stage ? `${stage}: ${message}` : message });
+          toast.error("Live swap failed", {
+            description: stage ? `${stage}: ${message}` : message,
+          });
         } finally {
           setBusy(false);
         }

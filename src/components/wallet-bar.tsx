@@ -89,7 +89,10 @@ function useSolBalance(address: string | null) {
         if (failuresRef.current >= 2) setDegraded(true);
         if (!transient) console.warn("balance fetch failed", err);
         // Full-jitter exponential backoff, capped at 30s.
-        const delay = Math.max(500, computeBackoff(failuresRef.current - 1, { baseMs: 1000, maxMs: 30_000 }));
+        const delay = Math.max(
+          500,
+          computeBackoff(failuresRef.current - 1, { baseMs: 1000, maxMs: 30_000 }),
+        );
         scheduleNext(delay);
       }
     };
@@ -108,8 +111,6 @@ function useSolBalance(address: string | null) {
 
   return { balance, degraded };
 }
-
-
 
 function formatSol(sol: number | null): string {
   if (sol === null) return "—";
@@ -159,9 +160,7 @@ export function WalletBar() {
           </div>
           <div className="px-2 pb-2 font-mono text-xs text-foreground">
             Balance: {formatSol(balance)}
-            {degraded && (
-              <span className="ml-2 text-[10px] text-warning">reconnecting…</span>
-            )}
+            {degraded && <span className="ml-2 text-[10px] text-warning">reconnecting…</span>}
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={copy}>Copy address</DropdownMenuItem>

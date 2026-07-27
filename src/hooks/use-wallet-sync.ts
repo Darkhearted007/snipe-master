@@ -45,5 +45,13 @@ export function useWalletSync() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [connection, publicKey, connected, connecting, wallet, setWalletFromAdapter, setWalletBalance]);
+  }, [
+    connection,
+    publicKey,
+    connected,
+    connecting,
+    wallet,
+    setWalletFromAdapter,
+    setWalletBalance,
+  ]);
 }

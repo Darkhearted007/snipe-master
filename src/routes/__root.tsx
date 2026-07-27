@@ -38,7 +38,6 @@ import { ServiceRoleWarning } from "@/components/service-role-warning";
 import { getSupabaseEnvStatus } from "@/lib/env-check";
 import { ConfigErrorScreen } from "@/components/config-error-screen";
 
-
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

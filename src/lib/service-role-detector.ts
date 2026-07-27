@@ -36,7 +36,10 @@ export function findServiceRoleInText(text: string): string | null {
 }
 
 /** Scans localStorage + sessionStorage for a service_role JWT. Returns the storage key. */
-export function scanBrowserStorage(): { store: "localStorage" | "sessionStorage"; key: string } | null {
+export function scanBrowserStorage(): {
+  store: "localStorage" | "sessionStorage";
+  key: string;
+} | null {
   if (typeof window === "undefined") return null;
   for (const store of ["localStorage", "sessionStorage"] as const) {
     const s = window[store];

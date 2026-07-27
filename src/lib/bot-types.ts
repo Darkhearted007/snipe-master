@@ -2,14 +2,7 @@ export type BotMode = "paper" | "live";
 export type BotStatus = "idle" | "running" | "paused" | "error";
 export type Venue = "raydium" | "pumpfun" | "bsc";
 export type DecisionType =
-  | "feed"
-  | "safety"
-  | "strategy"
-  | "execution"
-  | "learning"
-  | "audit"
-  | "wallet"
-  | "error";
+  "feed" | "safety" | "strategy" | "execution" | "learning" | "audit" | "wallet" | "error";
 
 /** Raw token/pool candidate discovered by the Helius webhook pipeline. */
 export interface DiscoveryCandidate {

@@ -43,10 +43,7 @@ async function loadSolanaProviders(): Promise<ComponentType<{ children: ReactNod
 
   return function LoadedSolanaProviders({ children }: { children: ReactNode }) {
     const endpoint = useMemo(() => getEndpoint(), []);
-    const wallets = useMemo(
-      () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
-      [],
-    );
+    const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
 
     return (
       <ConnectionProvider endpoint={endpoint}>
@@ -78,7 +75,6 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
-
 
   if (!Providers) {
     return <WalletReadyContext.Provider value={false}>{children}</WalletReadyContext.Provider>;

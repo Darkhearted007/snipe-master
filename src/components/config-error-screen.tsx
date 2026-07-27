@@ -17,8 +17,8 @@ export function ConfigErrorScreen({ missing }: { missing: string[] }) {
                 Backend configuration missing
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                The app can’t start because required backend environment variables were not
-                injected into the client bundle.
+                The app can’t start because required backend environment variables were not injected
+                into the client bundle.
               </p>
             </div>
 
@@ -35,8 +35,8 @@ export function ConfigErrorScreen({ missing }: { missing: string[] }) {
               <ol className="ml-4 list-decimal space-y-1">
                 <li>Confirm Lovable Cloud is enabled for this project.</li>
                 <li>
-                  Reload the preview — a fresh build usually re-injects the values into the
-                  client bundle.
+                  Reload the preview — a fresh build usually re-injects the values into the client
+                  bundle.
                 </li>
                 <li>
                   If the message keeps returning, restart the dev server so Vite re-reads

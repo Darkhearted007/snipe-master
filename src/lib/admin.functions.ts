@@ -31,7 +31,6 @@ async function assertAdmin(supabase: SupabaseClient, callerId: string) {
   if (!data) throw new Error("Forbidden: admin role required");
 }
 
-
 export type AdminUserRow = {
   id: string;
   walletAddress: string;
