@@ -32,7 +32,18 @@ jobs:
         run: bun run typecheck
 
       - name: Lint
-        run: bun run lint
+        run: |
+          set +e
+          OUTPUT=$(bun run lint 2>&1)
+          CODE=$?
+          echo "$OUTPUT"
+          if [ $CODE -ne 0 ]; then
+            echo "$OUTPUT" | head -60 | while IFS= read -r line; do
+              esc=$(printf '%s' "$line" | sed 's/%/%25/g' | tr '\n' ' ')
+              echo "::error::$esc"
+            done
+          fi
+          exit $CODE
 
       - name: Build
         run: bun run build
