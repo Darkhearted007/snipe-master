@@ -9,44 +9,24 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as LogsRouteImport } from './routes/logs'
-import { Route as SafetyRouteImport } from './routes/safety'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as TradesRouteImport } from './routes/trades'
 import { Route as WatchlistRouteImport } from './routes/watchlist'
-import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
-import { Route as ApiDiscoveryRouteImport } from './routes/api/discovery'
+import { Route as TradesRouteImport } from './routes/trades'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SafetyRouteImport } from './routes/safety'
+import { Route as LogsRouteImport } from './routes/logs'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiRpcRouteImport } from './routes/api/rpc'
-import { Route as ApiJupiterQuoteRouteImport } from './routes/api/jupiter/quote'
-import { Route as ApiJupiterSwapRouteImport } from './routes/api/jupiter/swap'
-import { Route as ApiRugcheckMintRouteImport } from './routes/api/rugcheck.$mint'
+import { Route as ApiDiscoveryRouteImport } from './routes/api/discovery'
+import { Route as ApiDexscreenerRouteImport } from './routes/api/dexscreener'
 import { Route as ApiWebhooksHeliusPoolDiscoveryRouteImport } from './routes/api/webhooks/helius-pool-discovery'
+import { Route as ApiRugcheckMintRouteImport } from './routes/api/rugcheck.$mint'
+import { Route as ApiJupiterSwapRouteImport } from './routes/api/jupiter/swap'
+import { Route as ApiJupiterQuoteRouteImport } from './routes/api/jupiter/quote'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LogsRoute = LogsRouteImport.update({
-  id: '/logs',
-  path: '/logs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SafetyRoute = SafetyRouteImport.update({
-  id: '/safety',
-  path: '/safety',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+const WatchlistRoute = WatchlistRouteImport.update({
+  id: '/watchlist',
+  path: '/watchlist',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TradesRoute = TradesRouteImport.update({
@@ -54,19 +34,29 @@ const TradesRoute = TradesRouteImport.update({
   path: '/trades',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WatchlistRoute = WatchlistRouteImport.update({
-  id: '/watchlist',
-  path: '/watchlist',
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
-  id: '/api/dexscreener',
-  path: '/api/dexscreener',
+const SafetyRoute = SafetyRouteImport.update({
+  id: '/safety',
+  path: '/safety',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDiscoveryRoute = ApiDiscoveryRouteImport.update({
-  id: '/api/discovery',
-  path: '/api/discovery',
+const LogsRoute = LogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiRpcRoute = ApiRpcRouteImport.update({
@@ -74,19 +64,14 @@ const ApiRpcRoute = ApiRpcRouteImport.update({
   path: '/api/rpc',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiJupiterQuoteRoute = ApiJupiterQuoteRouteImport.update({
-  id: '/api/jupiter/quote',
-  path: '/api/jupiter/quote',
+const ApiDiscoveryRoute = ApiDiscoveryRouteImport.update({
+  id: '/api/discovery',
+  path: '/api/discovery',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiJupiterSwapRoute = ApiJupiterSwapRouteImport.update({
-  id: '/api/jupiter/swap',
-  path: '/api/jupiter/swap',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiRugcheckMintRoute = ApiRugcheckMintRouteImport.update({
-  id: '/api/rugcheck/$mint',
-  path: '/api/rugcheck/$mint',
+const ApiDexscreenerRoute = ApiDexscreenerRouteImport.update({
+  id: '/api/dexscreener',
+  path: '/api/dexscreener',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWebhooksHeliusPoolDiscoveryRoute =
@@ -95,6 +80,21 @@ const ApiWebhooksHeliusPoolDiscoveryRoute =
     path: '/api/webhooks/helius-pool-discovery',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiRugcheckMintRoute = ApiRugcheckMintRouteImport.update({
+  id: '/api/rugcheck/$mint',
+  path: '/api/rugcheck/$mint',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiJupiterSwapRoute = ApiJupiterSwapRouteImport.update({
+  id: '/api/jupiter/swap',
+  path: '/api/jupiter/swap',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiJupiterQuoteRoute = ApiJupiterQuoteRouteImport.update({
+  id: '/api/jupiter/quote',
+  path: '/api/jupiter/quote',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -215,39 +215,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/logs': {
-      id: '/logs'
-      path: '/logs'
-      fullPath: '/logs'
-      preLoaderRoute: typeof LogsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/safety': {
-      id: '/safety'
-      path: '/safety'
-      fullPath: '/safety'
-      preLoaderRoute: typeof SafetyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
+    '/watchlist': {
+      id: '/watchlist'
+      path: '/watchlist'
+      fullPath: '/watchlist'
+      preLoaderRoute: typeof WatchlistRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/trades': {
@@ -257,25 +229,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TradesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/watchlist': {
-      id: '/watchlist'
-      path: '/watchlist'
-      fullPath: '/watchlist'
-      preLoaderRoute: typeof WatchlistRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/dexscreener': {
-      id: '/api/dexscreener'
-      path: '/api/dexscreener'
-      fullPath: '/api/dexscreener'
-      preLoaderRoute: typeof ApiDexscreenerRouteImport
+    '/safety': {
+      id: '/safety'
+      path: '/safety'
+      fullPath: '/safety'
+      preLoaderRoute: typeof SafetyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/discovery': {
-      id: '/api/discovery'
-      path: '/api/discovery'
-      fullPath: '/api/discovery'
-      preLoaderRoute: typeof ApiDiscoveryRouteImport
+    '/logs': {
+      id: '/logs'
+      path: '/logs'
+      fullPath: '/logs'
+      preLoaderRoute: typeof LogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/rpc': {
@@ -285,18 +271,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiRpcRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/jupiter/quote': {
-      id: '/api/jupiter/quote'
-      path: '/api/jupiter/quote'
-      fullPath: '/api/jupiter/quote'
-      preLoaderRoute: typeof ApiJupiterQuoteRouteImport
+    '/api/discovery': {
+      id: '/api/discovery'
+      path: '/api/discovery'
+      fullPath: '/api/discovery'
+      preLoaderRoute: typeof ApiDiscoveryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/jupiter/swap': {
-      id: '/api/jupiter/swap'
-      path: '/api/jupiter/swap'
-      fullPath: '/api/jupiter/swap'
-      preLoaderRoute: typeof ApiJupiterSwapRouteImport
+    '/api/dexscreener': {
+      id: '/api/dexscreener'
+      path: '/api/dexscreener'
+      fullPath: '/api/dexscreener'
+      preLoaderRoute: typeof ApiDexscreenerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/helius-pool-discovery': {
+      id: '/api/webhooks/helius-pool-discovery'
+      path: '/api/webhooks/helius-pool-discovery'
+      fullPath: '/api/webhooks/helius-pool-discovery'
+      preLoaderRoute: typeof ApiWebhooksHeliusPoolDiscoveryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/rugcheck/$mint': {
@@ -306,11 +299,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiRugcheckMintRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/webhooks/helius-pool-discovery': {
-      id: '/api/webhooks/helius-pool-discovery'
-      path: '/api/webhooks/helius-pool-discovery'
-      fullPath: '/api/webhooks/helius-pool-discovery'
-      preLoaderRoute: typeof ApiWebhooksHeliusPoolDiscoveryRouteImport
+    '/api/jupiter/swap': {
+      id: '/api/jupiter/swap'
+      path: '/api/jupiter/swap'
+      fullPath: '/api/jupiter/swap'
+      preLoaderRoute: typeof ApiJupiterSwapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/jupiter/quote': {
+      id: '/api/jupiter/quote'
+      path: '/api/jupiter/quote'
+      fullPath: '/api/jupiter/quote'
+      preLoaderRoute: typeof ApiJupiterQuoteRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
