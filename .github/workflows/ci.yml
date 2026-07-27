@@ -6,6 +6,11 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 # Cancel superseded runs on the same branch/PR so pushes don't queue up.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
