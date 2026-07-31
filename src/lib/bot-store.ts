@@ -1121,6 +1121,13 @@ export const useBotStore = create<BotState>()(
         if (!Number.isFinite(liquiditySol) || liquiditySol <= 0) return null;
         const oppId = id();
         const score = Math.min(99, Math.max(1, Math.floor(50 + liquiditySol / 10)));
+        // CRITICAL: write BOTH `mint` (canonical SPL mint used by the swap
+        // path and the LiveExecuteButton's `!opp.mint` render gate) AND
+        // `tokenAddress` (read by checkLiveEntry/confirmLiveEntry). Previously
+        // `tokenAddress` was accepted as a parameter but silently dropped,
+        // and `mint` was never set — so the Execute button never rendered
+        // and checkLiveEntry always failed with "Mint validation failed",
+        // structurally blocking every live entry.
         const opportunity: Opportunity = {
           id: oppId,
           ts: Date.now(),
@@ -1133,6 +1140,8 @@ export const useBotStore = create<BotState>()(
           confidence: score,
           decision: "skip",
           live: s.mode === "live",
+          mint: tokenAddress ?? undefined,
+          tokenAddress: tokenAddress ?? null,
         };
         set((cur) => ({
           opportunities: [opportunity, ...cur.opportunities].slice(0, MAX_FEED),
