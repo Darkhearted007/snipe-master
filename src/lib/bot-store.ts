@@ -833,6 +833,19 @@ export const useBotStore = create<BotState>()(
             decision,
             reason: reasons.join(" · ") || `council bias ${bias >= 0 ? "+" : ""}${bias}`,
             symbol: token,
+            // Live entries require both `mint` (the LiveExecuteButton render
+            // gate uses `!opp.mint`) and `tokenAddress` (read by
+            // checkLiveEntry). Mirror the real SPL mint onto both fields so a
+            // discovery-candidate opportunity is actually tradeable. Also
+            // surface the safety score on `safetyScore`/`score` so the gate's
+            // `safetyScore ?? score ?? 0` check sees the real score instead of
+            // defaulting to 0 (which always fails minSafety). A safety_score
+            // of null/-1 means "not yet scored" — leave score undefined in
+            // that case so the gate reports the real reason instead of a
+            // misleading "0 < minSafety".
+            tokenAddress: mint ?? null,
+            safetyScore: safety >= 0 ? safety : undefined,
+            score: safety >= 0 ? safety : undefined,
           };
           newOpportunities.push(opp);
           feedLogs.push({
@@ -1005,8 +1018,16 @@ export const useBotStore = create<BotState>()(
             ok: false as const,
             error: `Safety threshold failed (${score} < ${s.safetyFilters.minSafety})`,
           };
-        const tokenAddress = (opportunity as Opportunity & { tokenAddress?: string | null })
-          .tokenAddress;
+        // Resolve the SPL mint from BOTH the canonical `mint` field (used by
+        // discovery, the swap path, and the LiveExecuteButton render gate) and
+        // the legacy `tokenAddress` field. Either one is a valid mint; requiring
+        // only `tokenAddress` previously rejected every opportunity created via
+        // the discovery-candidate tick loop (which sets `mint`, not
+        // `tokenAddress`), making live entry structurally impossible.
+        const tokenAddress =
+          (opportunity as Opportunity & { tokenAddress?: string | null }).tokenAddress ??
+          opportunity.mint ??
+          null;
         if (!tokenAddress) return { ok: false as const, error: "Mint validation failed" };
         return { ok: true as const, sizeSol: minSize };
       },
@@ -1042,7 +1063,11 @@ export const useBotStore = create<BotState>()(
         const s = get();
         const opp = s.opportunities.find((o) => o.id === opportunityId);
         if (!opp) return;
-        const tokenAddress = (opp as Opportunity & { tokenAddress?: string | null }).tokenAddress;
+        // Resolve the SPL mint from both fields (see checkLiveEntry) so the
+        // live position records the real on-chain mint regardless of which
+        // pipeline created the opportunity.
+        const tokenAddress =
+          (opp as Opportunity & { tokenAddress?: string | null }).tokenAddress ?? opp.mint ?? null;
         const positionId = id();
         const position: Position = {
           id: positionId,
@@ -1087,6 +1112,13 @@ export const useBotStore = create<BotState>()(
         if (!Number.isFinite(liquiditySol) || liquiditySol <= 0) return null;
         const oppId = id();
         const score = Math.min(99, Math.max(1, Math.floor(50 + liquiditySol / 10)));
+        // CRITICAL: write BOTH `mint` (canonical SPL mint used by the swap
+        // path and the LiveExecuteButton's `!opp.mint` render gate) AND
+        // `tokenAddress` (read by checkLiveEntry/confirmLiveEntry). Previously
+        // `tokenAddress` was accepted as a parameter but silently dropped,
+        // and `mint` was never set — so the Execute button never rendered
+        // and checkLiveEntry always failed with "Mint validation failed",
+        // structurally blocking every live entry.
         const opportunity: Opportunity = {
           id: oppId,
           ts: Date.now(),
@@ -1099,6 +1131,8 @@ export const useBotStore = create<BotState>()(
           confidence: score,
           decision: "skip",
           live: s.mode === "live",
+          mint: tokenAddress ?? undefined,
+          tokenAddress: tokenAddress ?? null,
         };
         set((cur) => ({
           opportunities: [opportunity, ...cur.opportunities].slice(0, MAX_FEED),

@@ -90,10 +90,16 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
   const { executeSwap, walletReady } = useLiveExecution();
   const [busy, setBusy] = useState(false);
 
-  if (mode !== "live" || !opp.mint) return null;
+  if (mode !== "live" || (!opp.mint && !opp.tokenAddress)) return null;
 
   // Pure — safe to call during render, does not touch the store.
   const gate = checkLiveEntry(opp.id);
+
+  // Resolve the SPL mint the same way checkLiveEntry does: canonical `mint`
+  // first, then `tokenAddress`. Both are set by the discovery/DexScreener
+  // pipelines now, but fall back so a legacy opportunity with only one field
+  // is still tradeable.
+  const outputMint = opp.mint ?? opp.tokenAddress ?? null;
 
   return (
     <Button
@@ -115,7 +121,7 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
           const amountLamports = Math.max(1, Math.floor(committed.sizeSol * LAMPORTS_PER_SOL));
           const result = await executeSwap({
             inputMint: SOL_MINT,
-            outputMint: opp.mint!,
+            outputMint: outputMint!,
             amountLamports,
             slippageBps: 300,
             maxPriceImpactPct: 15,
