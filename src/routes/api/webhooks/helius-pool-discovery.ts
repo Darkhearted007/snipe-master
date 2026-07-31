@@ -53,9 +53,15 @@ export const Route = createFileRoute("/api/webhooks/helius-pool-discovery")({
       POST: async ({ request }) => {
         const secret = process.env.HELIUS_WEBHOOK_SECRET;
         if (!secret) {
-          console.error("[pool-discovery] HELIUS_WEBHOOK_SECRET not configured");
-          return new Response(JSON.stringify({ error: "Webhook not configured" }), {
-            status: 500,
+          // Configuration error, not a server fault. 503 (not 500) so Vercel
+          // doesn't treat this as an app crash and fire error-rate alerts or
+          // webhook retry storms. The message names the exact missing var so
+          // an operator reading the response body can fix it without a log dive.
+          console.error(
+            "[pool-discovery] HELIUS_WEBHOOK_SECRET not configured — set it in Vercel env vars to accept Helius raw webhook POSTs",
+          );
+          return new Response(JSON.stringify({ error: "HELIUS_WEBHOOK_SECRET not configured" }), {
+            status: 503,
             headers: { "Content-Type": "application/json" },
           });
         }
@@ -128,7 +134,16 @@ export const Route = createFileRoute("/api/webhooks/helius-pool-discovery")({
             safety_score: c.safety?.score ?? null,
             raw_payload: c.safety ? (JSON.parse(JSON.stringify(c.safety)) as Json) : null,
           })),
-          { onConflict: "mint", ignoreDuplicates: true },
+          // ignoreDuplicates must be FALSE here. A true upsert on `mint` means
+          // a re-discovery (second pool-creation event, or a safety
+          // re-evaluation after an earlier eval failed) refreshes the existing
+          // row — in particular overwriting a stale/NULL safety_score with the
+          // fresh one we just computed synchronously above. With
+          // ignoreDuplicates: true (the previous setting) the upsert silently
+          // discarded every update for any already-known mint, so a mint whose
+          // first webhook POST failed safety eval stayed safety_score=NULL
+          // forever even though later POSTs computed a real score.
+          { onConflict: "mint", ignoreDuplicates: false },
         );
 
         if (error) {

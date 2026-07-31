@@ -38,6 +38,10 @@ interface DiscoveryQueryBuilder {
         value: unknown,
       ): Promise<{ error: { message: string; code?: string } | null }>;
     };
+    lt(
+      column: string,
+      value: unknown,
+    ): Promise<{ error: { message: string; code?: string } | null }>;
   };
 }
 
@@ -54,6 +58,13 @@ const CORS = {
 
 const MAX_EVALUATIONS_PER_REQUEST = 3;
 const DEX_QUERIES = ["SOL", "raydium", "pumpfun"] as const;
+
+// Cooldown before re-attempting a safety evaluation that previously failed
+// (RPC down, Jupiter 429, honeypot-check timeout, etc.). Without this, the
+// 8s frontend poll re-ran evaluateMintSafety on the same failing candidates
+// indefinitely. 2 minutes is short enough to recover quickly once the
+// upstream is healthy, long enough to stop the retry storm.
+const EVAL_COOLDOWN_MS = 2 * 60 * 1000;
 
 type DiscoveryDiagnostics = {
   stage: "supabase" | "fallback-dexscreener";
@@ -171,18 +182,32 @@ export const Route = createFileRoute("/api/discovery")({
         }
 
         try {
+          // Prune ALL stale candidates older than 30 minutes, matching the
+          // migration's prune_stale_discovery_candidates() design (maxCandidateAgeMs
+          // = 30 min). The previous query only deleted unscored candidates older
+          // than 24h, which left scored candidates accumulating forever and gave
+          // unscored ones a 24h grace period — both diverging from the intended
+          // 30-min expiry and causing unbounded table growth.
+          const staleBefore = new Date(Date.now() - 30 * 60 * 1000).toISOString();
           const { error: pruneError } = await admin
             .from("discovery_candidates")
             .delete()
-            .is("safety_score", null)
-            .lt("discovered_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+            .lt("discovered_at", staleBefore);
           if (pruneError) {
             console.error("[discovery] prune failed", pruneError);
           }
 
+          // Only evaluate candidates that are genuinely unchecked
+          // (safety_score IS NULL AND no prior eval attempt recorded in
+          // raw_payload). Without this, every 8s frontend poll re-runs
+          // evaluateMintSafety on the same 3 failing candidates (RPC/Jupiter
+          // down, honeypot-check timeout, etc.) — hammering those APIs with no
+          // backoff and blocking the response. Candidates whose eval previously
+          // failed get an `evalError` + `evaluatedAt` stamped into raw_payload
+          // below and are skipped here for the EVAL_COOLDOWN_MS window.
           const { data: unscored, error: unscoredError } = await admin
             .from("discovery_candidates")
-            .select("mint, lp_mint")
+            .select("mint, lp_mint, raw_payload")
             .is("safety_score", null)
             .order("discovered_at", { ascending: true })
             .limit(MAX_EVALUATIONS_PER_REQUEST);
@@ -194,7 +219,16 @@ export const Route = createFileRoute("/api/discovery")({
             });
           }
 
+          const now = Date.now();
           for (const row of unscored ?? []) {
+            // Skip candidates still inside their eval-cooldown window so a
+            // persistently-failing mint (e.g. an RPC that 429s for it) doesn't
+            // get re-attempted on every single poll.
+            const prior = row.raw_payload as { evalError?: string; evaluatedAt?: string } | null;
+            if (prior?.evaluatedAt) {
+              const elapsed = now - new Date(prior.evaluatedAt).getTime();
+              if (elapsed < EVAL_COOLDOWN_MS) continue;
+            }
             try {
               const result = await evaluateMintSafety(row.mint, row.lp_mint);
               const { error: updateError } = await admin
@@ -208,7 +242,28 @@ export const Route = createFileRoute("/api/discovery")({
                 console.error("[discovery] failed to persist safety score", row.mint, updateError);
               }
             } catch (e) {
-              console.error("[discovery] safety evaluation failed", row.mint, e);
+              // Stamp the failure into raw_payload (keeping safety_score NULL so
+              // the frontend still treats it as unchecked/unsafe) so the
+              // cooldown check above skips re-evaluation until the window
+              // expires. This is the backoff that was entirely missing before.
+              const reason = e instanceof Error ? e.message : String(e);
+              console.error("[discovery] safety evaluation failed", row.mint, reason);
+              const { error: failUpdateError } = await admin
+                .from("discovery_candidates")
+                .update({
+                  raw_payload: {
+                    evalError: reason.slice(0, 500),
+                    evaluatedAt: new Date().toISOString(),
+                  } as Json,
+                })
+                .eq("mint", row.mint);
+              if (failUpdateError) {
+                console.error(
+                  "[discovery] failed to persist eval-failure marker",
+                  row.mint,
+                  failUpdateError,
+                );
+              }
             }
           }
 
