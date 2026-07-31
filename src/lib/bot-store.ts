@@ -726,6 +726,15 @@ export const useBotStore = create<BotState>()(
         const exitLogs: DecisionLogEntry[] = [];
 
         for (const p of s.positions) {
+          // Live positions are backed by a real on-chain swap — never
+          // random-walk their notional price or compute simulated pnl from
+          // synthetic drift. Their `current` stays at entry until a real
+          // exit (manual close or a live price feed) updates it. This keeps
+          // the equity curve honest and prevents fake TP/SL triggers.
+          if (p.live) {
+            remaining.push(p);
+            continue;
+          }
           const drift = (Math.random() - 0.48) * 0.035;
           const current = Math.max(1e-9, p.current * (1 + drift));
           const hitTp = p.tp > 0 && current >= p.tp;
@@ -826,6 +835,10 @@ export const useBotStore = create<BotState>()(
             token,
             mint,
             decimals,
+            // Mirror mint into tokenAddress so checkLiveEntry (which accepts
+            // either field) and the live executor both see a valid SPL mint
+            // regardless of which feed produced this opportunity.
+            tokenAddress: mint ?? null,
             venue,
             liquiditySol,
             safety,
@@ -833,6 +846,11 @@ export const useBotStore = create<BotState>()(
             decision,
             reason: reasons.join(" · ") || `council bias ${bias >= 0 ? "+" : ""}${bias}`,
             symbol: token,
+            // Expose the scored safety on the fields the live-entry gate and
+            // the opportunity feed read, so a real safety_score (not the -1
+            // "not yet checked" sentinel) drives eligibility.
+            safetyScore: safety >= 0 ? safety : undefined,
+            score: safety >= 0 ? safety : undefined,
           };
           newOpportunities.push(opp);
           feedLogs.push({
@@ -999,14 +1017,21 @@ export const useBotStore = create<BotState>()(
             ok: false as const,
             error: `Insufficient bankroll (${s.bankroll.toFixed(5)} SOL)`,
           };
-        const score = opportunity.safetyScore ?? opportunity.score ?? 0;
+        const score = opportunity.safetyScore ?? opportunity.score ?? opportunity.safety ?? 0;
         if (score < s.safetyFilters.minSafety)
           return {
             ok: false as const,
             error: `Safety threshold failed (${score} < ${s.safetyFilters.minSafety})`,
           };
-        const tokenAddress = (opportunity as Opportunity & { tokenAddress?: string | null })
-          .tokenAddress;
+        // Live entries require a real on-chain SPL mint to swap against.
+        // Both `mint` (set by the discovery-candidate → opportunity path in
+        // tick()) and `tokenAddress` (set by pushRealOpportunity from the
+        // DexScreener stream) are valid sources — accept either so live
+        // trading isn't gated on a field only one feed populates.
+        const tokenAddress =
+          opportunity.mint ??
+          (opportunity as Opportunity & { tokenAddress?: string | null }).tokenAddress ??
+          null;
         if (!tokenAddress) return { ok: false as const, error: "Mint validation failed" };
         return { ok: true as const, sizeSol: minSize };
       },
@@ -1033,7 +1058,7 @@ export const useBotStore = create<BotState>()(
             id: id(),
             ts: Date.now(),
             type: "execution",
-            summary: `ENTRY_REQUESTED · ${opportunity!.symbol} · size ${gate.sizeSol.toFixed(5)} SOL · score ${opportunity!.safetyScore ?? opportunity!.score ?? 0}`,
+            summary: `ENTRY_REQUESTED · ${opportunity!.symbol} · size ${gate.sizeSol.toFixed(5)} SOL · score ${opportunity!.safetyScore ?? opportunity!.score ?? opportunity!.safety ?? 0}`,
           }).slice(0, MAX_LOG),
         }));
         return gate;
@@ -1042,19 +1067,28 @@ export const useBotStore = create<BotState>()(
         const s = get();
         const opp = s.opportunities.find((o) => o.id === opportunityId);
         if (!opp) return;
-        const tokenAddress = (opp as Opportunity & { tokenAddress?: string | null }).tokenAddress;
+        // Accept either field as the SPL mint (both feeds are valid sources).
+        const tokenAddress =
+          opp.mint ?? (opp as Opportunity & { tokenAddress?: string | null }).tokenAddress ?? null;
         const positionId = id();
         const position: Position = {
           id: positionId,
           token: opp.token,
+          mint: opp.mint ?? tokenAddress ?? undefined,
+          decimals: opp.decimals,
           venue: opp.venue,
           sizeSol,
-          entry: opp.entryPrice ?? opp.price ?? 0,
-          current: opp.entryPrice ?? opp.price ?? 0,
+          // Use a real price if the opportunity carries one; otherwise fall
+          // back to 1.0 so downstream pnl math never divides by zero. Live
+          // positions are NOT random-walked by tick() (see B5 guard), so this
+          // is only a notional reference until a real exit is executed.
+          entry: opp.entryPrice ?? opp.price ?? 1,
+          current: opp.entryPrice ?? opp.price ?? 1,
           live: true,
           tp: 0,
           sl: 0,
           mintAddress: tokenAddress ?? null,
+          entrySignature: signature,
           openedAt: Date.now(),
         } as Position;
         set((cur) => ({
