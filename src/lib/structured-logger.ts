@@ -8,13 +8,7 @@ import { useBotStore } from "@/lib/bot-store";
 import { reportLovableError } from "@/lib/lovable-error-reporting";
 
 export type LogCategory =
-  | "stream"
-  | "persistence"
-  | "wallet"
-  | "swap"
-  | "rpc"
-  | "boundary"
-  | "unknown";
+  "stream" | "persistence" | "wallet" | "swap" | "rpc" | "boundary" | "unknown";
 
 export type LogSeverity = "info" | "warning" | "error";
 

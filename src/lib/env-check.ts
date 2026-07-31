@@ -10,8 +10,7 @@
  */
 
 export type SupabaseEnvStatus =
-  | { ok: true; url: string; key: string }
-  | { ok: false; missing: string[] };
+  { ok: true; url: string; key: string } | { ok: false; missing: string[] };
 
 // Publishable (anon) fallbacks — safe to ship in client bundle. These are
 // used ONLY if Vite fails to inline the env vars at build time, so the app
