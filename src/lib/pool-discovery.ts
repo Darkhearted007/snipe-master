@@ -70,10 +70,18 @@ interface TokenBalance {
   uiTokenAmount?: { decimals?: number };
 }
 
+interface InnerInstruction {
+  programId?: string;
+  programIdIndex?: number;
+}
+
 interface TxMeta {
   logMessages?: string[];
   preTokenBalances?: TokenBalance[];
   postTokenBalances?: TokenBalance[];
+  // Inner (CPI) instructions — pool-creation is frequently invoked here by a
+  // launcher program rather than as a top-level instruction.
+  innerInstructions?: Array<{ instructions?: InnerInstruction[] }>;
 }
 
 export interface NewMint {
@@ -101,8 +109,20 @@ export function findNewMintsFromBalances(meta: TxMeta | undefined): NewMint[] {
  * transaction. Helius raw payloads resolve instruction programId either as
  * a direct string field or via a programIdIndex into accountKeys, depending
  * on API version — handle both rather than assuming one shape.
+ *
+ * Pool-creation instructions (Raydium AMM v4 `initialize2`, CPMM `Initialize`,
+ * pump.fun `Create`) are frequently executed as inner instructions (CPIs)
+ * invoked by a launcher/router program, so the top-level instruction's
+ * programId is the launcher — not the DEX. We therefore also scan
+ * `meta.innerInstructions[].instructions`, otherwise we'd miss the majority
+ * of real launches and the webhook would extract zero candidates.
  */
 export function extractInvokedProgramIds(tx: {
+  meta?: {
+    innerInstructions?: Array<{
+      instructions?: Array<{ programId?: string; programIdIndex?: number }>;
+    }>;
+  };
   transaction?: {
     message?: {
       instructions?: Array<{ programId?: string; programIdIndex?: number }>;
@@ -110,18 +130,23 @@ export function extractInvokedProgramIds(tx: {
     };
   };
 }): string[] {
-  const message = tx.transaction?.message;
-  if (!message?.instructions) return [];
-  const accountKeys = (message.accountKeys ?? []).map((k) =>
+  const accountKeys = (tx.transaction?.message?.accountKeys ?? []).map((k) =>
     typeof k === "string" ? k : k.pubkey,
   );
   const ids = new Set<string>();
-  for (const ix of message.instructions) {
+
+  const collect = (ix: { programId?: string; programIdIndex?: number } | undefined) => {
+    if (!ix) return;
     if (ix.programId) {
       ids.add(ix.programId);
     } else if (typeof ix.programIdIndex === "number" && accountKeys[ix.programIdIndex]) {
       ids.add(accountKeys[ix.programIdIndex]);
     }
+  };
+
+  for (const ix of tx.transaction?.message?.instructions ?? []) collect(ix);
+  for (const inner of tx.meta?.innerInstructions ?? []) {
+    for (const ix of inner.instructions ?? []) collect(ix);
   }
   return [...ids];
 }
