@@ -50,8 +50,7 @@ export async function buildSwap(input: {
     }),
   });
   const data = (await res.json()) as
-    | { swapTransaction: string; lastValidBlockHeight?: number }
-    | { error: string };
+    { swapTransaction: string; lastValidBlockHeight?: number } | { error: string };
   if (!res.ok || "error" in data) {
     throw new Error(("error" in data && data.error) || `Swap build failed (${res.status})`);
   }
