@@ -125,12 +125,14 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
         setBusy(true);
         try {
           const amountLamports = Math.max(1, Math.floor(committed.sizeSol * LAMPORTS_PER_SOL));
+          const isPumpFunBondingCurve = opp.venue === "pumpfun";
           const result = await executeSwap({
             inputMint: SOL_MINT,
             outputMint: outputMint!,
             amountLamports,
             slippageBps: 300,
             maxPriceImpactPct: 15,
+            isPumpFunBondingCurve,
           });
           confirmLiveEntry({
             opportunityId: opp.id,
