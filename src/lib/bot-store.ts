@@ -165,6 +165,10 @@ interface BotState {
   killSwitch: () => void;
   acknowledgeBreach: () => void;
   closePosition: (id: string) => void;
+  /** Updates the `current` price of a live position so equity / drawdown
+   *  reflect real unrealized P&L. Called by a live price feed (e.g.
+   *  DexScreener) when it observes a price for the position's mint. */
+  updateLivePositionPrice: (mint: string, currentPrice: number) => void;
   toggleVenue: (v: Venue) => void;
   setGuardrails: (g: Partial<Guardrails>) => void;
   addWatch: (input: {
@@ -387,13 +391,30 @@ export const useBotStore = create<BotState>()(
       setWalletBalance: (sol) =>
         set((s) => {
           const next = sol == null ? s.bankroll : Math.max(0, sol);
+          // When the bot is running, a wallet-balance poll is NOT a session
+          // reset. The on-chain SOL balance naturally drops when a live
+          // position is opened (the SOL was swapped for tokens) — if we
+          // reset startBankroll to the new (lower) balance on every 20-30s
+          // poll, the daily-loss guardrail baseline drifts downward and
+          // never triggers. Similarly, we must NOT clear a real
+          // guardrailBreached just because the RPC balance refresh fired.
+          //
+          // Only initialize startBankroll / peakBankroll / equity when the
+          // bot is idle (i.e. this is the initial wallet-connect sync, not
+          // a mid-session poll).
+          const isIdle = s.status === "idle";
+          const equityValue = isIdle ? next : next + s.positions.reduce((a, p) => a + p.sizeSol, 0);
           return {
             walletBalanceSol: sol,
             bankroll: next,
-            startBankroll: next,
-            peakBankroll: Math.max(s.peakBankroll, next),
-            equity: [{ ts: Date.now(), value: next }, ...s.equity].slice(0, MAX_EQUITY),
-            guardrailBreached: false,
+            // Preserve the session baseline while running; initialize when idle.
+            startBankroll: isIdle ? next : s.startBankroll,
+            peakBankroll: isIdle ? next : Math.max(s.peakBankroll, equityValue),
+            equity: isIdle
+              ? [{ ts: Date.now(), value: next }, ...s.equity].slice(0, MAX_EQUITY)
+              : [...s.equity, { ts: Date.now(), value: equityValue }].slice(-MAX_EQUITY),
+            // Never clear a real breach from a balance-poll side effect.
+            guardrailBreached: isIdle ? false : s.guardrailBreached,
             log: prepend(s.log, {
               id: id(),
               ts: Date.now(),
@@ -437,9 +458,18 @@ export const useBotStore = create<BotState>()(
         const s = get();
         if (s.mode === "live" && (!s.liveConfirmed || !s.walletConnected)) return;
         if (s.guardrailBreached) return;
+        // Reset session baselines so drawdown/daily-loss are measured from
+        // the point the bot actually starts, not from a stale peak left over
+        // from a previous session (which could cause an immediate false
+        // breach on the first tick).
+        const sessionStart = s.bankroll;
+        const equityNow = sessionStart + s.positions.reduce((a, p) => a + p.sizeSol, 0);
         set({
           status: "running",
           startedAt: Date.now(),
+          startBankroll: sessionStart,
+          peakBankroll: Math.max(sessionStart, equityNow),
+          equity: [{ ts: Date.now(), value: equityNow }, ...s.equity].slice(0, MAX_EQUITY),
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
@@ -579,6 +609,37 @@ export const useBotStore = create<BotState>()(
                   ]
                 : []),
             ).slice(0, MAX_LOG),
+          };
+        }),
+      updateLivePositionPrice: (mint, currentPrice) =>
+        set((s) => {
+          if (!Number.isFinite(currentPrice) || currentPrice <= 0) return {};
+          const idx = s.positions.findIndex(
+            (p) =>
+              p.live &&
+              (p.mint === mint ||
+                (p as Position & { mintAddress?: string | null }).mintAddress === mint),
+          );
+          if (idx < 0) return {};
+          const p = s.positions[idx];
+          if (p.current === currentPrice) return {};
+          const updated = { ...p, current: currentPrice };
+          const positions = [...s.positions];
+          positions[idx] = updated;
+          // Recompute equity with the new price so peak / drawdown stay
+          // accurate without waiting for the next tick.
+          const positionsValue = positions.reduce((a, pos) => {
+            if (pos.entry > 0 && pos.current !== pos.entry) {
+              return a + pos.sizeSol * (pos.current / pos.entry);
+            }
+            return a + pos.sizeSol;
+          }, 0);
+          const equityValue = s.bankroll + positionsValue;
+          return {
+            positions,
+            peakBankroll: Math.max(s.peakBankroll, equityValue),
+            equity: [...s.equity, { ts: Date.now(), value: equityValue }].slice(-MAX_EQUITY),
+            sessionPnl: equityValue - s.startBankroll,
           };
         }),
       toggleVenue: (v) =>
@@ -909,7 +970,20 @@ export const useBotStore = create<BotState>()(
           const skipsAdded = newOpportunities.filter((o) => o.decision === "skip").length;
           const entriesAdded = newOpportunities.filter((o) => o.decision === "enter").length;
           const nextBankroll = bankroll;
-          const equityValue = nextBankroll + remaining.reduce((a, p) => a + p.sizeSol, 0);
+          // Equity = bankroll + mark-to-market value of open positions.
+          // For paper positions, `current` is updated by the random-walk
+          // above, so we use the unrealized P&L: sizeSol * (current / entry).
+          // For live positions, `current` stays at entry (no synthetic
+          // drift), so this falls back to sizeSol — the original cost. A
+          // future live price feed should update `current` so the drawdown
+          // guardrail reflects real unrealized losses.
+          const positionsValue = remaining.reduce((a, p) => {
+            if (p.entry > 0 && p.current !== p.entry) {
+              return a + p.sizeSol * (p.current / p.entry);
+            }
+            return a + p.sizeSol;
+          }, 0);
+          const equityValue = nextBankroll + positionsValue;
           const peak = Math.max(cur.peakBankroll, equityValue);
           const drawdownPct = peak > 0 ? ((peak - equityValue) / peak) * 100 : 0;
           const dailyLossPct =
