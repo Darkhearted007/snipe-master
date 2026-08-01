@@ -30,18 +30,52 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5_000;
 
 type SafetyVerdictResponse =
-  | { ok: true; score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }
+  | {
+      ok: true;
+      score: number | null;
+      verdict: "safe" | "caution" | "danger" | "unknown";
+      flags?: {
+        lpLocked: boolean | null;
+        lpLockedPct: number | null;
+        topHolderPct: number | null;
+        insiderPct: number | null;
+      };
+      onChain?: {
+        score: number;
+        mintAuthorityActive: boolean | null;
+        freezeAuthorityActive: boolean | null;
+        honeypotSellable: boolean | null;
+        lpStatus: string;
+        reasons: string[];
+      } | null;
+    }
   | { ok: false; error: string };
 
 async function fetchSafetyVerdict(
   mint: string,
   signal: AbortSignal,
-): Promise<{ score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }> {
+): Promise<{
+  score: number | null;
+  verdict: "safe" | "caution" | "danger" | "unknown";
+  flags?: {
+    lpLocked: boolean | null;
+    topHolderPct: number | null;
+    honeypotSellable: boolean | null;
+  };
+}> {
   const res = await fetch(`/api/rugcheck/${encodeURIComponent(mint)}`, { signal });
   if (!res.ok) throw new Error(`safety check ${res.status}`);
   const data = (await res.json()) as SafetyVerdictResponse;
   if (!data.ok) throw new Error(data.error);
-  return { score: data.score, verdict: data.verdict };
+  return {
+    score: data.score,
+    verdict: data.verdict,
+    flags: {
+      lpLocked: data.flags?.lpLocked ?? null,
+      topHolderPct: data.flags?.topHolderPct ?? null,
+      honeypotSellable: data.onChain?.honeypotSellable ?? null,
+    },
+  };
 }
 
 export function useSafetyResolver(enabled: boolean) {
@@ -74,7 +108,12 @@ export function useSafetyResolver(enabled: boolean) {
 
       fetchSafetyVerdict(mint, controller.signal)
         .then((v) => {
-          applySafetyVerdict({ opportunityId: o.id, score: v.score, verdict: v.verdict });
+          applySafetyVerdict({
+            opportunityId: o.id,
+            score: v.score,
+            verdict: v.verdict,
+            flags: v.flags,
+          });
           // If the verdict is "unknown" (both rugcheck and on-chain failed),
           // retry after a delay — but only up to MAX_RETRIES.
           if (v.verdict === "unknown" && attempt < MAX_RETRIES) {

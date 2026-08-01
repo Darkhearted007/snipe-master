@@ -69,21 +69,57 @@ async function fetchPairs(query: string, signal: AbortSignal): Promise<SearchRes
 }
 
 type SafetyVerdictResponse =
-  | { ok: true; score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }
+  | {
+      ok: true;
+      score: number | null;
+      verdict: "safe" | "caution" | "danger" | "unknown";
+      flags?: {
+        lpLocked: boolean | null;
+        lpLockedPct: number | null;
+        topHolderPct: number | null;
+        insiderPct: number | null;
+      };
+      onChain?: {
+        score: number;
+        mintAuthorityActive: boolean | null;
+        freezeAuthorityActive: boolean | null;
+        honeypotSellable: boolean | null;
+        lpStatus: string;
+        reasons: string[];
+      } | null;
+    }
   | { ok: false; error: string };
 
 /** Calls the existing /api/rugcheck/$mint route, which merges rugcheck.xyz's
  *  report with a real on-chain check (mint/freeze authority, LP lock/burn,
- *  honeypot probe) into one verdict. */
+ *  honeypot probe) into one verdict. Returns the full flags + on-chain data
+ *  so applySafetyVerdict can check requireLpLocked, blockHoneypots, and
+ *  maxHolderConcentrationPct against the user's SafetyFilters config. */
 async function fetchSafetyVerdict(
   mint: string,
   signal: AbortSignal,
-): Promise<{ score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }> {
+): Promise<{
+  score: number | null;
+  verdict: "safe" | "caution" | "danger" | "unknown";
+  flags?: {
+    lpLocked: boolean | null;
+    topHolderPct: number | null;
+    honeypotSellable: boolean | null;
+  };
+}> {
   const res = await fetch(`/api/rugcheck/${encodeURIComponent(mint)}`, { signal });
   if (!res.ok) throw new Error(`safety check ${res.status}`);
   const data = (await res.json()) as SafetyVerdictResponse;
   if (!data.ok) throw new Error(data.error);
-  return { score: data.score, verdict: data.verdict };
+  return {
+    score: data.score,
+    verdict: data.verdict,
+    flags: {
+      lpLocked: data.flags?.lpLocked ?? null,
+      topHolderPct: data.flags?.topHolderPct ?? null,
+      honeypotSellable: data.onChain?.honeypotSellable ?? null,
+    },
+  };
 }
 
 export function useDexScreenerStream(enabled: boolean) {
@@ -140,12 +176,14 @@ export function useDexScreenerStream(enabled: boolean) {
               continue;
             }
             const mint = p.baseToken?.address;
+            const priceUsd = p.priceUsd ? parseFloat(p.priceUsd) : null;
             const oppId = pushRealOpportunity({
               token: p.baseToken?.symbol ?? "UNKNOWN",
               venue,
               symbol,
               liquiditySol,
               tokenAddress: mint,
+              priceUsd,
             });
             if (oppId && mint) {
               // Fire-and-forget: the opportunity starts as safety=-1/"skip"
@@ -154,7 +192,12 @@ export function useDexScreenerStream(enabled: boolean) {
               // discovery of the next pair.
               fetchSafetyVerdict(mint, abort.signal)
                 .then((v) => {
-                  applySafetyVerdict({ opportunityId: oppId, score: v.score, verdict: v.verdict });
+                  applySafetyVerdict({
+                    opportunityId: oppId,
+                    score: v.score,
+                    verdict: v.verdict,
+                    flags: v.flags,
+                  });
                 })
                 .catch((e) => {
                   logStructured(e, {

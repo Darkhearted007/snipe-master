@@ -38,6 +38,7 @@ export function ControlHeader() {
   const liveConfirmed = useBotStore((s) => s.liveConfirmed);
   const confirmLive = useBotStore((s) => s.confirmLive);
   const breached = useBotStore((s) => s.guardrailBreached);
+  const safetyFilters = useBotStore((s) => s.safetyFilters);
 
   const trader = useHasRole(["trader", "admin"]);
   const admin = useHasRole("admin");
@@ -105,6 +106,13 @@ export function ControlHeader() {
     }
     start();
     toast.success(`Bot running · ${mode.toUpperCase()}`);
+    if (mode === "live" && !safetyFilters.autoExecute) {
+      toast.warning("Auto-Execute is OFF · manual entry only", {
+        description:
+          "Enable Auto-Execute in the Watchlist page to let the bot auto-enter trades that pass all safety gates.",
+        duration: 8000,
+      });
+    }
   };
 
   const handleStop = () => {
