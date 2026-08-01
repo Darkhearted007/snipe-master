@@ -115,8 +115,13 @@ function summarize(
   // verdict, which is why the bot skipped 80+ trades without entering one.
   //
   // The one on-chain signal that IS a hard fail regardless of venue: a
-  // confirmed honeypot (honeypotSellable === false) — the token literally
-  // cannot be sold, so funds would be locked forever.
+  // CONFIRMED honeypot (honeypotSellable === false — we could buy but
+  // selling back returned nothing). Note: honeypotSellable === null means
+  // the probe was inconclusive (Jupiter couldn't route, network error) —
+  // that's NOT a confirmed honeypot and must NOT trigger a hard fail.
+  // Previously, the honeypot probe treated all failures as sellable=false,
+  // which meant every pump.fun token (not Jupiter-routable pre-migration)
+  // got a "danger" verdict and was skipped.
   const isPumpFunBondingCurve = onChain != null && onChain.lpStatus === "not-applicable";
   const onChainHardFail =
     onChain != null &&

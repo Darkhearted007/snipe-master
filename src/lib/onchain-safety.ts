@@ -199,10 +199,37 @@ async function checkHolderConcentration(mint: string): Promise<SafetyResult["hol
  * quote selling that exact output straight back. If the reverse quote
  * returns nothing (or errors), the token likely can't be sold — classic
  * honeypot pattern.
+ *
+ * IMPORTANT distinction:
+ *  - sellable === false  → CONFIRMED honeypot (reverse quote returned zero).
+ *    This is the only case that should trigger the score=0 hard fail.
+ *  - sellable === null   → INCONCLUSIVE (forward quote failed, no route,
+ *    network error, rate limit). This is NOT a honeypot confirmation —
+ *    it's an infrastructure failure. Pump.fun bonding-curve tokens often
+ *    fail here because Jupiter can't route them pre-migration; treating
+ *    that as "honeypot" caused every pump.fun token to get score=0 and
+ *    verdict="danger", which is why the bot skipped all trades.
+ *  - sellable === true   → token can be bought and sold back.
+ *
+ * When lpMint === null (pump.fun bonding curve), the honeypot probe is
+ * skipped entirely: Jupiter doesn't route pump.fun bonding-curve tokens,
+ * so the probe would always fail with "no route found" and produce a
+ * false-positive honeypot verdict. sellable is set to null with a clear
+ * reason instead.
  */
 async function checkHoneypot(
   mint: string,
+  lpMint: string | null = null,
 ): Promise<{ result: SafetyResult["honeypot"]; liquidityProbeOutAmount: string | null }> {
+  // Pump.fun bonding-curve tokens are not Jupiter-routable pre-migration.
+  // Running the probe would always fail → false-positive honeypot.
+  if (lpMint == null) {
+    return {
+      result: { sellable: null, reason: "bonding-curve-not-jupiter-routable" },
+      liquidityProbeOutAmount: null,
+    };
+  }
+
   const PROBE_LAMPORTS = 10_000_000; // 0.01 SOL — small enough not to move price
   try {
     const forward = await getSafetyProbeQuote({
@@ -219,6 +246,7 @@ async function checkHoneypot(
     });
     const outAmount = Number(reverse.outAmount);
     if (!(outAmount > 0)) {
+      // CONFIRMED honeypot: we could buy but selling back returns nothing.
       return {
         result: { sellable: false, reason: "reverse-quote-returned-zero" },
         liquidityProbeOutAmount: forward.outAmount,
@@ -229,8 +257,14 @@ async function checkHoneypot(
       liquidityProbeOutAmount: forward.outAmount,
     };
   } catch (error) {
+    // INCONCLUSIVE: the probe failed for infrastructure reasons (no route
+    // found, network error, rate limit, deprecated API). This is NOT a
+    // confirmed honeypot — treat it as unknown, not as sellable=false.
     const reason = error instanceof Error ? error.message : String(error);
-    return { result: { sellable: false, reason }, liquidityProbeOutAmount: null };
+    return {
+      result: { sellable: null, reason: `probe-failed: ${reason}` },
+      liquidityProbeOutAmount: null,
+    };
   }
 }
 
@@ -245,7 +279,7 @@ export async function evaluateMintSafety(
   const [authority, holders, honeypotCheck, lpStatus] = await Promise.all([
     checkMintAuthority(mint),
     checkHolderConcentration(mint),
-    checkHoneypot(mint),
+    checkHoneypot(mint, lpMint),
     checkLpLockOrBurn(lpMint),
   ]);
 
@@ -291,9 +325,20 @@ export async function evaluateMintSafety(
     reasons.push("lp-lock-status-check-failed");
     score -= 10;
   }
+  // Honeypot check: only a CONFIRMED honeypot (sellable === false, meaning
+  // we could buy but the reverse sell quote returned zero) is a hard fail
+  // that zeroes the score. An inconclusive probe (sellable === null —
+  // Jupiter couldn't route, network error, rate limit) is NOT a honeypot
+  // confirmation; it gets a small penalty for the uncertainty but doesn't
+  // block trading. Previously, any probe failure was treated as sellable
+  // === false, which zeroed the score for every pump.fun token (Jupiter
+  // can't route bonding-curve tokens) and caused the bot to skip all trades.
   if (honeypotCheck.result.sellable === false) {
     reasons.push("honeypot-sell-check-failed");
     score = 0; // hard fail regardless of other checks — this is the one that loses funds outright
+  } else if (honeypotCheck.result.sellable === null) {
+    reasons.push(`honeypot-probe-inconclusive:${honeypotCheck.result.reason ?? "unknown"}`);
+    score -= 10; // small penalty for uncertainty, not a hard fail
   }
 
   return {
