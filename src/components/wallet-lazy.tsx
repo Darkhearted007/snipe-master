@@ -1,7 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Opportunity } from "@/lib/bot-types";
+import type { Opportunity, Position } from "@/lib/bot-types";
 
 const WalletBarImpl = lazy(() =>
   import("@/components/wallet-runtime").then((m) => ({ default: m.WalletBar })),
@@ -21,6 +21,18 @@ const LiveExecuteButtonImpl = lazy(() =>
 
 const AutoExecutorMountImpl = lazy(() =>
   import("@/components/wallet-runtime").then((m) => ({ default: m.AutoExecutorMount })),
+);
+
+const LivePriceFeedMountImpl = lazy(() =>
+  import("@/components/wallet-runtime").then((m) => ({ default: m.LivePriceFeedMount })),
+);
+
+const AutoExitExecutorMountImpl = lazy(() =>
+  import("@/components/wallet-runtime").then((m) => ({ default: m.AutoExitExecutorMount })),
+);
+
+const LiveCloseButtonImpl = lazy(() =>
+  import("@/components/wallet-runtime").then((m) => ({ default: m.LiveCloseButton })),
 );
 
 function WalletLoadingButton({ children = "Loading wallet…" }: { children?: ReactNode }) {
@@ -68,6 +80,30 @@ export function LazyAutoExecutorMount() {
   return (
     <Suspense fallback={null}>
       <AutoExecutorMountImpl />
+    </Suspense>
+  );
+}
+
+export function LazyLivePriceFeedMount() {
+  return (
+    <Suspense fallback={null}>
+      <LivePriceFeedMountImpl />
+    </Suspense>
+  );
+}
+
+export function LazyAutoExitExecutorMount() {
+  return (
+    <Suspense fallback={null}>
+      <AutoExitExecutorMountImpl />
+    </Suspense>
+  );
+}
+
+export function LazyLiveCloseButton({ position }: { position: Position }) {
+  return (
+    <Suspense fallback={null}>
+      <LiveCloseButtonImpl position={position} />
     </Suspense>
   );
 }

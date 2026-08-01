@@ -112,6 +112,7 @@ export function useAutoExecutor() {
               opportunityId: opp.id,
               sizeSol: committed.sizeSol,
               signature: result.signature,
+              tokensReceivedRaw: result.outAmount,
             });
             s.logAudit(
               `LIVE_SWAP_CONFIRMED · ${opp.token} · in ${amountLamports} lamports · out ${result.outAmount} · impact ${result.priceImpactPct}%`,

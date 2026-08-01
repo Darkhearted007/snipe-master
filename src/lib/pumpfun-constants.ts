@@ -98,6 +98,35 @@ export function feeConfigPda(): PublicKey {
 /** buy_exact_sol_in discriminator: [56, 252, 116, 8, 158, 223, 205, 95] */
 export const BUY_EXACT_SOL_IN_DISCRIMINATOR = Buffer.from([56, 252, 116, 8, 158, 223, 205, 95]);
 
+/**
+ * sell discriminator: [51, 230, 133, 164, 1, 127, 131, 173]
+ * The `sell` instruction sells an exact amount of tokens for SOL on the
+ * bonding curve. It is the reverse of `buy_exact_sol_in` and uses the same
+ * constant-product curve. The program applies the 1% protocol fee internally
+ * before crediting SOL to the user.
+ *
+ * Account layout (14 accounts, from the pump.fun IDL \u2014 `sell` instruction):
+ *   [0]  global                    (readonly, PDA)
+ *   [1]  fee_recipient             (writable)
+ *   [2]  mint                      (readonly)
+ *   [3]  bonding_curve             (writable, PDA)
+ *   [4]  associated_bonding_curve  (writable, ATA of bonding_curve)
+ *   [5]  associated_user           (writable, ATA of user)
+ *   [6]  user                      (writable, signer)
+ *   [7]  system_program            (readonly)
+ *   [8]  creator_vault             (writable, PDA)
+ *   [9]  token_program             (readonly)
+ *   [10] event_authority           (readonly, PDA)
+ *   [11] program                   (readonly, pump.fun program)
+ *   [12] fee_config                (readonly, PDA from fee_program)
+ *   [13] fee_program               (readonly)
+ *
+ * Args:
+ *   amount:         u64 \u2014 exact tokens to sell (raw units, smallest denomination)
+ *   min_sol_output: u64 \u2014 minimum SOL to receive (lamports, slippage guard)
+ */
+export const SELL_DISCRIMINATOR = Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]);
+
 // --- Bonding curve account decoder ---
 //
 // Layout (after 8-byte Anchor discriminator):
@@ -231,5 +260,55 @@ export function applySlippage(tokensOut: bigint, slippageBps: bigint): bigint {
   // min_out = tokens_out * (10000 - slippage_bps) / 10000
   const adjusted = (tokensOut * (10000n - slippageBps)) / 10000n;
   // Never go below 1 token unit
+  return adjusted > 0n ? adjusted : 1n;
+}
+
+// --- Sell bonding-curve math ---
+//
+// The sell path is the reverse of the buy: you deposit tokens and the curve
+// returns SOL. The constant-product formula gives the gross SOL output before
+// the 1% protocol fee:
+//
+//   sol_out_gross = (tokens_in * virtual_sol_reserves) /
+//                   (virtual_token_reserves + tokens_in)
+//
+// The on-chain program deducts the 1% fee itself and credits the net SOL to
+// the user. We compute the expected net locally to set a sane min_sol_output
+// for slippage protection \u2014 same rationale as computeBuyTokensOut.
+
+/**
+ * Compute the expected NET SOL output (after the 1% protocol fee) for a given
+ * token input amount on the bonding curve. Returns SOL in lamports.
+ *
+ * The program applies the fee internally, so this returns the amount the user
+ * will actually receive \u2014 matching what we should use for min_sol_output
+ * before applying the caller's slippage tolerance.
+ */
+export function computeSellSolOut(
+  tokensInRaw: bigint,
+  virtualTokenReserves: bigint,
+  virtualQuoteReserves: bigint,
+): bigint {
+  if (tokensInRaw <= 0n) return 0n;
+  if (virtualTokenReserves <= 0n || virtualQuoteReserves <= 0n) return 0n;
+  // Constant product (reverse): sol_out_gross = tokens_in * vsr / (vtr + tokens_in)
+  const numerator = tokensInRaw * virtualQuoteReserves;
+  const denominator = virtualTokenReserves + tokensInRaw;
+  if (denominator <= 0n) return 0n;
+  const solGross = numerator / denominator;
+  // Deduct the 1% protocol fee (same as buy \u2014 the program does this on-chain)
+  const fee = (solGross * PUMP_FEE_BPS) / 10000n;
+  const solNet = solGross - fee;
+  return solNet > 0n ? solNet : 0n;
+}
+
+/**
+ * Apply slippage tolerance to the expected SOL output of a sell.
+ * Returns the minimum SOL to accept (min_sol_output) in lamports.
+ * slippageBps is in basis points (e.g. 500 = 5%).
+ */
+export function applySellSlippage(solOut: bigint, slippageBps: bigint): bigint {
+  if (solOut <= 0n) return 0n;
+  const adjusted = (solOut * (10000n - slippageBps)) / 10000n;
   return adjusted > 0n ? adjusted : 1n;
 }

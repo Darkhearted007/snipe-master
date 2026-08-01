@@ -60,6 +60,16 @@ export interface Position {
   agentSized?: boolean;
   live?: boolean; // true once a real entry swap has been confirmed on-chain
   entrySignature?: string;
+  // Exit signaling for live positions. Set by tick() when the live price feed
+  // has updated `current` past TP or SL. The auto-exit executor reads these
+  // to trigger an on-chain sell, then clears them via confirmLiveExit().
+  exitRequested?: boolean;
+  exitReason?: "tp" | "sl"; // which threshold triggered the exit request
+  exitSignature?: string; // set after the on-chain sell confirms
+  /** Raw token amount (string, base units) received from the entry buy.
+   *  Needed for Jupiter (AMM) sells which require an exact input amount.
+   *  Pump.fun bonding-curve sells can omit it (server sells full ATA). */
+  tokensReceivedRaw?: string;
 }
 
 export interface DecisionLogEntry {
@@ -133,6 +143,9 @@ export interface TradeHistoryEntry {
   feeTxSig?: string;
   settlementError?: string;
   settledAt?: number;
+  // On-chain signatures for live trades — entry buy and exit sell.
+  entrySignature?: string;
+  exitSignature?: string;
 }
 
 export const PLATFORM_FEE_WALLET = "Gnh9qqJgVGna9yQ8Hc9mzV6bL95Z4eJkmxjPAGkqRnRA";
