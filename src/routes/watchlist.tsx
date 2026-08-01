@@ -49,6 +49,7 @@ const DEFAULT_SAFETY_FILTERS: SafetyFilters = {
   requireLpLocked: true,
   blockHoneypots: true,
   maxHolderConcentrationPct: 25,
+  autoExecute: false,
 };
 import { cn } from "@/lib/utils";
 import { isSafetyVerdict, useTokenSafety } from "@/hooks/use-token-safety";
@@ -72,6 +73,7 @@ function WatchlistPage() {
     toggleWatch,
     promoteAuto,
     clearAuto,
+    mode,
   } = useBotStore();
 
   const [symbol, setSymbol] = useState("");
@@ -227,6 +229,46 @@ function WatchlistPage() {
                 label="Block honeypots"
                 checked={safetyFilters.blockHoneypots}
                 onChange={(v) => setSafetyFilters({ blockHoneypots: v })}
+              />
+            </div>
+            {/* Auto-execute: the bot fires live swaps for enter-decision
+                opportunities without a manual Execute click. Live-mode only,
+                requires live-confirmed acknowledgement + connected wallet. */}
+            <div
+              className={cn(
+                "flex items-center justify-between rounded-md border p-2.5",
+                safetyFilters.autoExecute
+                  ? "border-live/50 bg-live/10"
+                  : "border-warning/30 bg-warning/5",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <AlertTriangle
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    safetyFilters.autoExecute ? "text-live" : "text-warning",
+                  )}
+                />
+                <div>
+                  <div className="text-xs font-medium">Auto-execute entries</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {mode === "live"
+                      ? "Bot auto-swaps passing tokens in live mode \u00b7 no manual click needed"
+                      : "Live mode only \u2014 switch to Solana Live to enable"}
+                  </div>
+                </div>
+              </div>
+              <Switch
+                checked={safetyFilters.autoExecute}
+                disabled={mode !== "live"}
+                onCheckedChange={(v) => {
+                  setSafetyFilters({ autoExecute: v });
+                  toast(v ? "Auto-execute armed" : "Auto-execute disarmed", {
+                    description: v
+                      ? "Passing opportunities will be swapped automatically"
+                      : "Manual Execute clicks required to enter positions",
+                  });
+                }}
               />
             </div>
           </CardContent>

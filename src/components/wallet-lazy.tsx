@@ -19,6 +19,10 @@ const LiveExecuteButtonImpl = lazy(() =>
   import("@/components/wallet-runtime").then((m) => ({ default: m.LiveExecuteButton })),
 );
 
+const AutoExecutorMountImpl = lazy(() =>
+  import("@/components/wallet-runtime").then((m) => ({ default: m.AutoExecutorMount })),
+);
+
 function WalletLoadingButton({ children = "Loading wallet…" }: { children?: ReactNode }) {
   return (
     <Button disabled variant="outline" size="sm" className="gap-1.5">
@@ -56,6 +60,14 @@ export function LazyLiveExecuteButton({ opp }: { opp: Opportunity }) {
   return (
     <Suspense fallback={null}>
       <LiveExecuteButtonImpl opp={opp} />
+    </Suspense>
+  );
+}
+
+export function LazyAutoExecutorMount() {
+  return (
+    <Suspense fallback={null}>
+      <AutoExecutorMountImpl />
     </Suspense>
   );
 }

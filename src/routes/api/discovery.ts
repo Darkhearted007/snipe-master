@@ -123,6 +123,33 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
   return [...rows.values()];
 }
 
+/**
+ * Evaluates on-chain safety for DexScreener fallback candidates so they
+ * carry a real safety_score instead of null. Without this, every fallback
+ * candidate shows safety=-1 ("not yet scored") in the opportunity feed and
+ * is auto-SKIPped — the feed looks alive but the bot never acts.
+ *
+ * Caps evaluations per request to avoid latency spikes (each check does
+ * RPC + Jupiter quote round-trips). Candidates that fail evaluation keep
+ * safety_score=null, which tick() maps to -1 (treated as unsafe).
+ */
+async function scoreFallbackCandidates(candidates: DiscoveryRow[]): Promise<DiscoveryRow[]> {
+  const toEvaluate = candidates.slice(0, MAX_EVALUATIONS_PER_REQUEST);
+  const scored = await Promise.allSettled(
+    toEvaluate.map(async (row) => {
+      const result = await evaluateMintSafety(row.mint, row.lp_mint);
+      return { ...row, safety_score: result.score };
+    }),
+  );
+  const scoreMap = new Map<string, number>();
+  scored.forEach((r, i) => {
+    if (r.status === "fulfilled") scoreMap.set(toEvaluate[i].mint, r.value.safety_score);
+  });
+  return candidates.map((c) =>
+    scoreMap.has(c.mint) ? { ...c, safety_score: scoreMap.get(c.mint)! } : c,
+  );
+}
+
 function structuredDiscoveryError(
   stage: DiscoveryDiagnostics["stage"],
   error: unknown,
@@ -157,9 +184,10 @@ export const Route = createFileRoute("/api/discovery")({
             structuredDiscoveryError("supabase", error),
           );
           const candidates = await fetchDexScreenerFallbackCandidates();
+          const scored = await scoreFallbackCandidates(candidates);
           return new Response(
             JSON.stringify({
-              candidates,
+              candidates: scored,
               source: "dexscreener-fallback",
               diagnostics: [structuredDiscoveryError("supabase", error)],
             }),
@@ -229,9 +257,10 @@ export const Route = createFileRoute("/api/discovery")({
           // DexScreener so discovery is never reported as offline/empty.
           if (!data || data.length === 0) {
             const candidates = await fetchDexScreenerFallbackCandidates();
+            const scored = await scoreFallbackCandidates(candidates);
             return new Response(
               JSON.stringify({
-                candidates,
+                candidates: scored,
                 source: "dexscreener-fallback",
                 diagnostics: [
                   {
@@ -262,9 +291,10 @@ export const Route = createFileRoute("/api/discovery")({
             diagnostics,
           );
           const candidates = await fetchDexScreenerFallbackCandidates();
+          const scored = await scoreFallbackCandidates(candidates);
           return new Response(
             JSON.stringify({
-              candidates,
+              candidates: scored,
               source: "dexscreener-fallback",
               diagnostics: [diagnostics],
             }),

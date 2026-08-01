@@ -105,6 +105,11 @@ export interface SafetyFilters {
   requireLpLocked: boolean;
   blockHoneypots: boolean;
   maxHolderConcentrationPct: number;
+  /** When true (live mode only), the bot auto-executes swaps for
+   *  opportunities that pass all safety gates — no manual Execute click
+   *  needed. Requires a connected wallet and live-confirmed acknowledgement.
+   *  Off by default so live trading is always opt-in. */
+  autoExecute: boolean;
 }
 
 export type SettlementStatus = "n/a" | "pending" | "settled" | "failed";

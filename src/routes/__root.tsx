@@ -34,6 +34,7 @@ import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 import { SchemaCheckBanner } from "@/components/schema-check-banner";
 import { LazyLiveExecutorMount } from "@/components/wallet-lazy";
+import { LazyAutoExecutorMount } from "@/components/wallet-lazy";
 import { ServiceRoleWarning } from "@/components/service-role-warning";
 import { getSupabaseEnvStatus } from "@/lib/env-check";
 import { ConfigErrorScreen } from "@/components/config-error-screen";
@@ -192,6 +193,7 @@ function AppLayout({ children }: { children: ReactNode }) {
           <StatusStrip />
           <main className="flex-1 p-4">{children}</main>
           {walletReady && <LazyLiveExecutorMount />}
+          {walletReady && <LazyAutoExecutorMount />}
         </div>
       </div>
     </SidebarProvider>
