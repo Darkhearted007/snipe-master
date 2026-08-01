@@ -7,6 +7,7 @@ import {
   buildSwapTransaction,
   getQuote,
 } from "../lib/jupiter";
+import { PumpFunError, executePumpFunBuy } from "../lib/pumpfun-swap";
 
 export interface LiveSwapParams {
   inputMint: string;
@@ -15,6 +16,8 @@ export interface LiveSwapParams {
   slippageBps: number;
   maxPriceImpactPct: number;
   priorityFeeLamports?: number;
+  /** When true, route through the pump.fun bonding-curve program instead of Jupiter. */
+  isPumpFunBondingCurve?: boolean;
 }
 
 export interface LiveSwapResult {
@@ -25,9 +28,14 @@ export interface LiveSwapResult {
 }
 
 /**
- * Executes one real swap end-to-end: quote -> build -> wallet signs
- * (browser popup) -> submit -> confirm. Throws JupiterError with a `.stage`
- * so callers can log exactly where a failed trade died.
+ * Executes one real swap end-to-end. Routes to the correct swap engine
+ * based on `isPumpFunBondingCurve`:
+ *
+ *   - pump.fun bonding-curve tokens → /api/pumpfun/buy (pump.fun program)
+ *   - everything else (AMM tokens, migrated pump.fun) → Jupiter aggregator
+ *
+ * Both paths end the same way: wallet signs (browser popup) → submit →
+ * confirm. The private key never touches this module or the server.
  */
 export function useLiveExecution() {
   const { connection } = useConnection();
@@ -39,6 +47,33 @@ export function useLiveExecution() {
         throw new JupiterError("Wallet not connected", "quote");
       }
 
+      // --- Pump.fun bonding-curve path ---
+      // Jupiter cannot route pump.fun bonding-curve tokens (they're on
+      // pump.fun's internal curve, not an AMM). Route these to the pump.fun
+      // program directly via our server-side transaction builder.
+      if (params.isPumpFunBondingCurve) {
+        const result = await executePumpFunBuy(
+          {
+            mint: params.outputMint,
+            amountLamports: params.amountLamports,
+            slippageBps: params.slippageBps,
+            priorityFeeLamports: params.priorityFeeLamports,
+          },
+          connection,
+          publicKey,
+          signTransaction,
+        );
+        // Convert PumpFunError stages to match the JupiterError stage
+        // convention so callers logging `err.stage` get consistent values.
+        return {
+          signature: result.signature,
+          inAmount: result.inAmount,
+          outAmount: result.outAmount,
+          priceImpactPct: result.priceImpactPct,
+        };
+      }
+
+      // --- Jupiter path (AMM tokens, graduated pump.fun, Raydium, etc.) ---
       const quote = await getQuote({
         inputMint: params.inputMint,
         outputMint: params.outputMint,

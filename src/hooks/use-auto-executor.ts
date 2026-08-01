@@ -94,12 +94,18 @@ export function useAutoExecutor() {
 
           try {
             const amountLamports = Math.max(1, Math.floor(committed.sizeSol * LAMPORTS_PER_SOL));
+            // Pump.fun bonding-curve tokens can't be routed through Jupiter
+            // (they're on pump.fun's internal curve, not an AMM). Route them
+            // to the pump.fun buy program instead. The venue field is set by
+            // both the discovery feed and the DexScreener stream.
+            const isPumpFunBondingCurve = opp.venue === "pumpfun";
             const result = await executeSwap({
               inputMint: SOL_MINT,
               outputMint,
               amountLamports,
               slippageBps: 300,
               maxPriceImpactPct: 15,
+              isPumpFunBondingCurve,
             });
             s.confirmLiveEntry({
               opportunityId: opp.id,
