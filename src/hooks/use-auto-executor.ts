@@ -27,7 +27,7 @@ import { SOL_MINT } from "@/lib/jupiter";
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export function useAutoExecutor() {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, signTransaction, connected } = useWallet();
   const { executeSwap, walletReady } = useLiveExecution();
   const processedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -45,7 +45,8 @@ export function useAutoExecutor() {
         state.liveConfirmed &&
         state.walletConnected &&
         connected &&
-        !!publicKey;
+        !!publicKey &&
+        !!signTransaction;
       enabledRef.current = armed;
       if (!armed) return;
 
@@ -135,5 +136,5 @@ export function useAutoExecutor() {
       });
     });
     return () => unsub();
-  }, [connected, publicKey, executeSwap, walletReady]);
+  }, [connected, publicKey, signTransaction, executeSwap, walletReady]);
 }

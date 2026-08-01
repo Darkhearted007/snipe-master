@@ -151,5 +151,5 @@ export function useLiveExecution() {
     [connection, connected, publicKey, signTransaction],
   );
 
-  return { executeSwap, walletReady: connected && !!publicKey };
+  return { executeSwap, walletReady: connected && !!publicKey && !!signTransaction };
 }

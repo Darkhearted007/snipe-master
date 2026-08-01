@@ -66,7 +66,9 @@ type DiscoveryDiagnostics = {
 
 function mapDexVenue(dexId?: string): string {
   const d = (dexId ?? "").toLowerCase();
-  if (d.includes("pump")) return "solana/pump.fun";
+  // Only "pumpfun" is the bonding curve. "pumpswap" is the graduated AMM
+  // — route it as raydium so Jupiter handles it (not the bonding-curve path).
+  if (d === "pumpfun") return "solana/pump.fun";
   if (d.includes("pancake") || d.includes("bsc")) return "bsc";
   return "solana/raydium";
 }
@@ -89,6 +91,8 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
           baseToken?: { symbol?: string; address?: string };
           quoteToken?: { symbol?: string };
           liquidity?: { usd?: number };
+          fdv?: number;
+          marketCap?: number;
           pairCreatedAt?: number;
         }>;
       };
@@ -103,6 +107,12 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
       if (pair.chainId !== "solana" || !pair.baseToken?.address) continue;
       const mint = pair.baseToken.address;
       if (rows.has(mint)) continue;
+      // Pump.fun bonding-curve tokens report liquidity.usd = null on
+      // DexScreener. Estimate from FDV so the tick() liquidity gate
+      // doesn't reject them (see estimateLiquiditySol for the formula).
+      const liquidityUsd = pair.liquidity?.usd ?? null;
+      const effectiveLiquidityUsd =
+        liquidityUsd != null ? liquidityUsd : (pair.fdv ?? pair.marketCap ?? null);
       rows.set(mint, {
         mint,
         lp_mint: null,
@@ -113,7 +123,10 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
           ? new Date(pair.pairCreatedAt).toISOString()
           : new Date().toISOString(),
         safety_score: null,
-        liquidity_usd: pair.liquidity?.usd ?? null,
+        // Store the effective liquidity (real or FDV-estimated) so tick()'s
+        // `(c.liquidity_usd ?? 0) / 150` produces a non-zero value for
+        // bonding-curve tokens.
+        liquidity_usd: effectiveLiquidityUsd,
       });
       if (rows.size >= 50) break;
     }
