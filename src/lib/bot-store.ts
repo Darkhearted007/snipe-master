@@ -265,8 +265,18 @@ const initial = {
   activeVenues: { raydium: true, pumpfun: true, bsc: false } as Record<Venue, boolean>,
   autoCurate: true,
   safetyFilters: {
-    minSafety: 60,
-    minLiquiditySol: 5,
+    // 40 is low enough to admit typical pump.fun tokens (which score ~30
+    // pre-migration because active mint/freeze authority is normal there,
+    // not a rug signal) while still hard-blocking honeypots (score 0) and
+    // tokens with unlocked LP + active freeze (score ≤ 35). The previous
+    // default of 60 filtered out virtually every real DexScreener pair,
+    // so the bot never saw a passing candidate in live mode.
+    minSafety: 40,
+    // 2 SOL ≈ $300 USD (liquiditySol = liquidityUsd / 150). The previous
+    // default of 5 required $750+ liquidity, which excludes most newly
+    // listed pairs the feed is meant to surface. 2 SOL is still enough to
+    // reject dust pools and outright scam pairs with no real liquidity.
+    minLiquiditySol: 2,
     requireLpLocked: true,
     blockHoneypots: true,
     maxHolderConcentrationPct: 25,
@@ -497,6 +507,12 @@ export const useBotStore = create<BotState>()(
             startBankroll: v,
             peakBankroll: v,
             positions: [],
+            // A session reset is a clean slate: clear the trade history and
+            // the decision log too, not just open positions. Previously
+            // these survived a reset, so "previous trade session history"
+            // kept showing after the user explicitly cleared the session.
+            tradeHistory: [],
+            opportunities: [],
             equity: [{ ts: Date.now(), value: v }] as EquityPoint[],
             sessionPnl: 0,
             tradesToday: 0,
@@ -888,7 +904,15 @@ export const useBotStore = create<BotState>()(
             );
           if (s.guardrails.duplicateGuard && s.positions.some((p) => p.token === token))
             reasons.push("duplicate position");
-          if (confidence < 55) reasons.push(`confidence ${confidence} too low`);
+          // Confidence floor tracks the safety threshold so a token that
+          // passes minSafety isn't separately blocked by a stale hardcoded
+          // confidence gate. Previously this was a fixed 55 — higher than
+          // the old minSafety of 60 minus typical council-bias/noise, which
+          // meant most live candidates were skipped on confidence even after
+          // passing the safety check. Now confidence must simply clear the
+          // same bar as safety.
+          if (confidence < s.safetyFilters.minSafety)
+            reasons.push(`confidence ${confidence} < ${s.safetyFilters.minSafety}`);
 
           const decision: Opportunity["decision"] = reasons.length ? "skip" : "enter";
           const opp: Opportunity = {
@@ -1281,18 +1305,112 @@ export const useBotStore = create<BotState>()(
           };
         }),
       hydrateFromServer: (payload) => {
+        // Apply user-configurable settings from the server so a reload
+        // restores the user's mode, guardrails, safety filters, venues, and
+        // deposit — the durable configuration. Session-runtime data
+        // (trades, logs, positions) is intentionally NOT restored into the
+        // store: each session starts fresh and the server retains the
+        // permanent audit record. This prevents "previous trade session
+        // history" from reappearing after a reload while still keeping the
+        // user's saved settings.
+        const patch: Partial<BotState> = {};
+        const st = payload.settings as Record<string, unknown> | null;
+        if (st) {
+          if (st.mode === "paper" || st.mode === "live") patch.mode = st.mode;
+          if (typeof st.liveConfirmed === "boolean") patch.liveConfirmed = st.liveConfirmed;
+          if (typeof st.userDeposit === "number") patch.userDeposit = st.userDeposit;
+          if (typeof st.platformFeePct === "number") patch.platformFeePct = st.platformFeePct;
+          if (st.guardrails && typeof st.guardrails === "object")
+            patch.guardrails = { ...get().guardrails, ...(st.guardrails as Partial<Guardrails>) };
+          if (st.safetyFilters && typeof st.safetyFilters === "object")
+            patch.safetyFilters = {
+              ...get().safetyFilters,
+              ...(st.safetyFilters as Partial<SafetyFilters>),
+            };
+          if (st.activeVenues && typeof st.activeVenues === "object")
+            patch.activeVenues = {
+              ...get().activeVenues,
+              ...(st.activeVenues as Partial<Record<Venue, boolean>>),
+            };
+          if (typeof st.autoCurate === "boolean") patch.autoCurate = st.autoCurate;
+        }
+        // Restore watchlist from server (durable user data).
+        if (Array.isArray(payload.watchlist) && payload.watchlist.length) {
+          patch.watchlist = (payload.watchlist as Array<Record<string, unknown>>).map((w) => ({
+            id: id(),
+            symbol: String(w.symbol ?? ""),
+            venue: (String(w.venue) as Venue) ?? "raydium",
+            source: (w.source === "auto" ? "auto" : "manual") as WatchSource,
+            enabled: Boolean(w.enabled),
+            safety: Number(w.safety ?? 0),
+            liquiditySol: Number(w.liquidity_sol ?? 0),
+            positiveStreak: Number(w.positive_streak ?? 0),
+            note: w.note ? String(w.note) : undefined,
+            mintAddress: w.mint_address ? String(w.mint_address) : null,
+            addedAt: Number(w.added_at ?? Date.now()),
+          }));
+        }
         set((s) => ({
+          ...patch,
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
             type: "audit",
-            summary: `Server state loaded · settings=${payload.settings ? "yes" : "no"} trades=${payload.trades.length}`,
+            summary: `Server state loaded · settings=${payload.settings ? "yes" : "no"} · watchlist=${Array.isArray(payload.watchlist) ? payload.watchlist.length : 0} · trades on server=${payload.trades.length}`,
           }).slice(0, MAX_LOG),
         }));
       },
       setCouncilMemory: (entries) => set({ councilMemory: entries }),
       setCouncilAppendHandler: (fn) => set({ onCouncilAppend: fn }),
     }),
-    { name: "snipe-master-bot", storage: createJSONStorage(() => localStorage) },
+    {
+      name: "snipe-master-bot",
+      storage: createJSONStorage(() => localStorage),
+      // Only persist user-configurable settings and durable learning state.
+      // Session-runtime data (tradeHistory, log, positions, opportunities,
+      // equity curve, session counters, guardrail-breached flag, status) is
+      // intentionally excluded so a page reload starts a fresh session
+      // instead of showing stale trades/logs from a previous run. The server
+      // persistence layer (use-server-persistence) is the canonical source
+      // for trade history and logs when a Supabase session is active;
+      // localStorage is only a cache for settings between reloads.
+      version: 2,
+      // Custom merge: only pick the keys we persist. Without this, a user
+      // upgrading from version 1 (which persisted the entire store including
+      // tradeHistory/log/positions) would still see stale session data on
+      // the first reload because the default merge applies the full old blob.
+      // This merge explicitly drops any non-persisted keys from the persisted
+      // state so the fresh initial values win for session-runtime fields.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<BotState>;
+        return {
+          ...current,
+          mode: p.mode ?? current.mode,
+          liveConfirmed: p.liveConfirmed ?? current.liveConfirmed,
+          userDeposit: p.userDeposit ?? current.userDeposit,
+          bankroll: p.bankroll ?? current.bankroll,
+          platformFeePct: p.platformFeePct ?? current.platformFeePct,
+          guardrails: p.guardrails ?? current.guardrails,
+          safetyFilters: p.safetyFilters ?? current.safetyFilters,
+          activeVenues: p.activeVenues ?? current.activeVenues,
+          autoCurate: p.autoCurate ?? current.autoCurate,
+          walletName: p.walletName ?? current.walletName,
+          councilMemory: p.councilMemory ?? current.councilMemory,
+        };
+      },
+      partialize: (s) => ({
+        mode: s.mode,
+        liveConfirmed: s.liveConfirmed,
+        userDeposit: s.userDeposit,
+        bankroll: s.bankroll,
+        platformFeePct: s.platformFeePct,
+        guardrails: s.guardrails,
+        safetyFilters: s.safetyFilters,
+        activeVenues: s.activeVenues,
+        autoCurate: s.autoCurate,
+        walletName: s.walletName,
+        councilMemory: s.councilMemory,
+      }),
+    },
   ),
 );
