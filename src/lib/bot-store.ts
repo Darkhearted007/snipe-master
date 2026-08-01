@@ -878,7 +878,16 @@ export const useBotStore = create<BotState>()(
             const c = rand(pool);
             token = c.symbol || c.mint.slice(0, 6);
             venue = venueFromDiscovery(c.venue);
-            liquiditySol = (c.liquidity_usd ?? 0) / 150;
+            // Pump.fun bonding-curve discovery candidates often have
+            // liquidity_usd = null (DexScreener can't measure curve
+            // liquidity). Fall back to the minLiquiditySol threshold so
+            // they pass the liquidity gate — the safety check + FDV
+            // estimate from the stream handle the real filtering.
+            const rawLiquiditySol = (c.liquidity_usd ?? 0) / 150;
+            liquiditySol =
+              venue === "pumpfun" && rawLiquiditySol <= 0
+                ? s.safetyFilters.minLiquiditySol
+                : rawLiquiditySol;
             safety = c.safety_score ?? -1;
             mint = c.mint;
             decimals = c.decimals;
@@ -898,7 +907,10 @@ export const useBotStore = create<BotState>()(
           if (safety >= 0 && safety < s.safetyFilters.minSafety)
             reasons.push(`safety ${safety} < ${s.safetyFilters.minSafety}`);
           if (safety < 0) reasons.push("safety not yet scored");
-          if (liquiditySol < s.safetyFilters.minLiquiditySol)
+          // Skip the liquidity gate for pump.fun bonding-curve tokens —
+          // their liquidity is on the curve, not a pool, and DexScreener
+          // reports it as null. The safety check gates them instead.
+          if (venue !== "pumpfun" && liquiditySol < s.safetyFilters.minLiquiditySol)
             reasons.push(
               `liquidity ${liquiditySol.toFixed(1)} < ${s.safetyFilters.minLiquiditySol} SOL`,
             );
@@ -1217,9 +1229,20 @@ export const useBotStore = create<BotState>()(
       pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress }) => {
         const s = get();
         if (!s.activeVenues[venue]) return null;
-        if (!Number.isFinite(liquiditySol) || liquiditySol <= 0) return null;
+        // Pump.fun bonding-curve tokens often report liquidity.usd = null
+        // on DexScreener (no LP pool — the curve is the liquidity). The
+        // DexScreener stream now estimates liquidity from FDV, but as a
+        // safety net we don't hard-reject pump.fun tokens with 0 liquidity
+        // — they get a minimal estimate so they at least enter the feed
+        // and can be scored by the safety check. AMM tokens still require
+        // positive liquidity (a 0-liquidity AMM pair is a dust/scam pool).
+        const effectiveLiquiditySol =
+          venue === "pumpfun" && (!Number.isFinite(liquiditySol) || liquiditySol <= 0)
+            ? s.safetyFilters.minLiquiditySol // minimal passable value
+            : liquiditySol;
+        if (!Number.isFinite(effectiveLiquiditySol) || effectiveLiquiditySol <= 0) return null;
         const oppId = id();
-        const score = Math.min(99, Math.max(1, Math.floor(50 + liquiditySol / 10)));
+        const score = Math.min(99, Math.max(1, Math.floor(50 + effectiveLiquiditySol / 10)));
         // CRITICAL: write BOTH `mint` (canonical SPL mint used by the swap
         // path and the LiveExecuteButton's `!opp.mint` render gate) AND
         // `tokenAddress` (read by checkLiveEntry/confirmLiveEntry). Previously
@@ -1233,7 +1256,7 @@ export const useBotStore = create<BotState>()(
           token,
           symbol,
           venue,
-          liquiditySol,
+          liquiditySol: effectiveLiquiditySol,
           score,
           safety: -1,
           confidence: score,
@@ -1248,7 +1271,7 @@ export const useBotStore = create<BotState>()(
             id: id(),
             ts: Date.now(),
             type: "audit",
-            summary: `POOL_ACCEPTED · ${symbol} · liq ${liquiditySol.toFixed(2)} SOL · score ${score}`,
+            summary: `POOL_ACCEPTED · ${symbol} · liq ${effectiveLiquiditySol.toFixed(2)} SOL · score ${score}`,
           }).slice(0, MAX_LOG),
         }));
         return oppId;
@@ -1269,7 +1292,13 @@ export const useBotStore = create<BotState>()(
           if (safety >= 0 && safety < s.safetyFilters.minSafety)
             reasons.push(`safety ${safety} < ${s.safetyFilters.minSafety}`);
           if (safety < 0) reasons.push("safety not yet scored");
-          if (opp.liquiditySol < s.safetyFilters.minLiquiditySol)
+          // Skip the liquidity gate for pump.fun bonding-curve tokens.
+          // DexScreener reports liquidity.usd = null for these (the curve is
+          // the liquidity, not a pool), so opp.liquiditySol may be an
+          // estimate or the minimal fallback. Applying the hard AMM-style
+          // liquidity gate here would block every bonding-curve token even
+          // after it passes the safety check, preventing any pump.fun entry.
+          if (opp.venue !== "pumpfun" && opp.liquiditySol < s.safetyFilters.minLiquiditySol)
             reasons.push(
               `liquidity ${opp.liquiditySol.toFixed(1)} < ${s.safetyFilters.minLiquiditySol} SOL`,
             );
