@@ -58,16 +58,29 @@ export const checkDiscoverySchema = createServerFn({ method: "GET" }).handler(
   },
 );
 
-/** Read-only check via the publishable (anon) client + fallback URL. */
+/**
+ * Read-only check via the publishable (anon) client.
+ *
+ * IMPORTANT: This function ALWAYS uses the known-good FALLBACK_SUPABASE_URL and
+ * FALLBACK_SUPABASE_PUBLISHABLE_KEY — never the process.env values. The entire
+ * purpose of this fallback is to verify the backend is reachable when the
+ * configured SUPABASE_URL on the deployment is broken (stale, placeholder, or
+ * pointing at an unreachable host). If the env URL worked, the admin check
+ * above would have already succeeded and we wouldn't be here. Reading
+ * process.env?.SUPABASE_URL here (as a previous version did) defeats the
+ * fallback: when SUPABASE_URL is truthy-but-broken the `||` operator never
+ * falls back to FALLBACK_SUPABASE_URL, so the publishable client hits the same
+ * unreachable host and fails with `TypeError: fetch failed` — reproducing the
+ * exact false "Discovery backend unreachable" banner this fallback was meant
+ * to prevent.
+ *
+ * The discovery_candidates table is readable by the anon role (RLS policy
+ * "discovery candidates are public"), so a successful HEAD select here proves
+ * the real backend is live and the schema is applied.
+ */
 async function checkViaPublishable(): Promise<SchemaCheckResult> {
-  const url =
-    (typeof process !== "undefined" && process.env?.SUPABASE_URL) || FALLBACK_SUPABASE_URL;
-  const key =
-    (typeof process !== "undefined" && process.env?.SUPABASE_PUBLISHABLE_KEY) ||
-    FALLBACK_SUPABASE_PUBLISHABLE_KEY;
-
-  const client = createClient<Database>(url, key, {
-    global: { fetch },
+  const client = createClient<Database>(FALLBACK_SUPABASE_URL, FALLBACK_SUPABASE_PUBLISHABLE_KEY, {
+    global: { fetch: fetchWithTimeout },
     auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
   });
 
@@ -84,6 +97,22 @@ async function checkViaPublishable(): Promise<SchemaCheckResult> {
     const message = e instanceof Error ? e.message : String(e);
     return classifyThrownError(message);
   }
+}
+
+/**
+ * Wrapper around the global `fetch` that enforces a 6-second timeout via
+ * AbortController. Without this, a misconfigured SUPABASE_URL pointing at a
+ * host that silently drops connections can hang the schema check indefinitely
+ * (the serverless function would time out at the platform limit, but a shorter
+ * timeout here lets the fallback logic kick in quickly).
+ */
+function fetchWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+): ReturnType<typeof fetch> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
 /** Check via the service-role admin client (bypasses RLS, same as routes). */
