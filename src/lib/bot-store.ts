@@ -215,7 +215,18 @@ interface BotState {
   requestLiveEntry: (
     opportunityId: string,
   ) => { ok: true; sizeSol: number } | { ok: false; error: string };
-  confirmLiveEntry: (input: { opportunityId: string; sizeSol: number; signature: string }) => void;
+  confirmLiveEntry: (input: {
+    opportunityId: string;
+    sizeSol: number;
+    signature: string;
+    tokensReceivedRaw?: string;
+  }) => void;
+  /** Bookkeeping after an on-chain sell confirms for a live position.
+   *  Records the exit signature, computes realized PnL from `current` vs
+   *  `entry`, returns the SOL to the wallet/bankroll, and (for profitable
+   *  exits) marks the trade settlement as "pending" so useLiveExecutor can
+   *  route the platform fee on-chain. */
+  confirmLiveExit: (input: { positionId: string; signature: string; solReceived?: number }) => void;
   failLiveEntry: (input: { opportunityId: string; reason: string }) => void;
   hydrateFromServer: (payload: {
     settings: Record<string, unknown> | null;
@@ -804,13 +815,39 @@ export const useBotStore = create<BotState>()(
         const exitLogs: DecisionLogEntry[] = [];
 
         for (const p of s.positions) {
-          // Live positions are backed by a real on-chain swap — never
-          // random-walk their notional price or compute simulated pnl from
-          // synthetic drift. Their `current` stays at entry until a real
-          // exit (manual close or a live price feed) updates it. This keeps
-          // the equity curve honest and prevents fake TP/SL triggers.
           if (p.live) {
-            remaining.push(p);
+            // Live positions are backed by a real on-chain swap — never
+            // random-walk their notional price. Their `current` is updated by
+            // the useLivePriceFeed hook (DexScreener poll). Instead of
+            // skipping them entirely, we check whether the live price has
+            // crossed TP or SL and flag the position for an on-chain exit.
+            // The auto-exit executor (useAutoExitExecutor) reads
+            // `exitRequested` and performs the actual sell, then calls
+            // confirmLiveExit to update bookkeeping.
+            if (p.exitRequested) {
+              remaining.push(p);
+              continue;
+            }
+            // Only check TP/SL if the price feed has updated `current` away
+            // from entry (otherwise current === entry and no threshold is hit).
+            if (p.current !== p.entry) {
+              const hitTp = p.tp > 0 && p.current >= p.tp;
+              const hitSl = p.sl > 0 && p.current <= p.sl;
+              if (hitTp || hitSl) {
+                const reason = hitTp ? "tp" : "sl";
+                remaining.push({ ...p, exitRequested: true, exitReason: reason });
+                exitLogs.push({
+                  id: id(),
+                  ts: Date.now(),
+                  type: "execution",
+                  summary: `EXIT_REQUESTED ${reason.toUpperCase()} ${p.token} · current ${p.current.toFixed(8)} · ${reason === "tp" ? "tp" : "sl"} ${reason === "tp" ? p.tp.toFixed(8) : p.sl.toFixed(8)} · pending on-chain sell`,
+                });
+              } else {
+                remaining.push(p);
+              }
+            } else {
+              remaining.push(p);
+            }
             continue;
           }
           const drift = (Math.random() - 0.48) * 0.035;
@@ -1174,7 +1211,7 @@ export const useBotStore = create<BotState>()(
         }));
         return gate;
       },
-      confirmLiveEntry: ({ opportunityId, sizeSol, signature }) => {
+      confirmLiveEntry: ({ opportunityId, sizeSol, signature, tokensReceivedRaw }) => {
         const s = get();
         const opp = s.opportunities.find((o) => o.id === opportunityId);
         if (!opp) return;
@@ -1182,6 +1219,7 @@ export const useBotStore = create<BotState>()(
         const tokenAddress =
           opp.mint ?? (opp as Opportunity & { tokenAddress?: string | null }).tokenAddress ?? null;
         const positionId = id();
+        const entryPrice = opp.entryPrice ?? opp.price ?? 1;
         const position: Position = {
           id: positionId,
           token: opp.token,
@@ -1191,15 +1229,21 @@ export const useBotStore = create<BotState>()(
           sizeSol,
           // Use a real price if the opportunity carries one; otherwise fall
           // back to 1.0 so downstream pnl math never divides by zero. Live
-          // positions are NOT random-walked by tick() (see B5 guard), so this
-          // is only a notional reference until a real exit is executed.
-          entry: opp.entryPrice ?? opp.price ?? 1,
-          current: opp.entryPrice ?? opp.price ?? 1,
+          // positions are NOT random-walked by tick() — instead the
+          // useLivePriceFeed hook polls DexScreener and calls
+          // updateLivePositionPrice() to keep `current` accurate.
+          entry: entryPrice,
+          current: entryPrice,
           live: true,
-          tp: 0,
-          sl: 0,
+          // Set TP/SL based on entry price so tick() can detect exits when
+          // the live price feed updates `current`. 12% take-profit, 6%
+          // stop-loss — matching the paper-mode strategy.
+          tp: entryPrice > 0 ? entryPrice * 1.12 : 0,
+          sl: entryPrice > 0 ? entryPrice * 0.94 : 0,
+          exitRequested: false,
           mintAddress: tokenAddress ?? null,
           entrySignature: signature,
+          tokensReceivedRaw,
           openedAt: Date.now(),
         } as Position;
         set((cur) => ({
@@ -1226,6 +1270,65 @@ export const useBotStore = create<BotState>()(
             summary: `ENTRY_FAILED · ${opportunityId} · ${reason}`,
           }).slice(0, MAX_LOG),
         })),
+      confirmLiveExit: ({ positionId, signature, solReceived }) => {
+        const s = get();
+        const p = s.positions.find((x) => x.id === positionId);
+        if (!p) return;
+        // Realized PnL from price appreciation. If the caller passed an
+        // explicit SOL amount received from the on-chain sell, prefer that
+        // for an exact figure; otherwise fall back to the notional math.
+        const notionalPnl = (p.current - p.entry) * (p.sizeSol / p.entry);
+        const realizedSol = solReceived ?? p.sizeSol + notionalPnl;
+        const pnl = realizedSol - p.sizeSol;
+        const fee = s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
+        const net = pnl - fee;
+        const bankroll = s.bankroll + realizedSol;
+        const walletBalanceSol =
+          s.walletBalanceSol == null ? null : Math.max(0, s.walletBalanceSol + realizedSol);
+        const reason = p.exitReason ?? "manual";
+        const entry: TradeHistoryEntry = {
+          id: id(),
+          ts: Date.now(),
+          mode: s.mode,
+          token: p.token,
+          venue: p.venue,
+          sizeSol: p.sizeSol,
+          entry: p.entry,
+          exit: p.current,
+          pnlSol: pnl,
+          reason,
+          feePaidSol: fee,
+          netToUserSol: net,
+          feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
+          settlementStatus: fee > 0 ? "pending" : "n/a",
+          entrySignature: p.entrySignature,
+          exitSignature: signature,
+        };
+        set((cur) => ({
+          positions: cur.positions.filter((x) => x.id !== positionId),
+          bankroll,
+          walletBalanceSol,
+          sessionPnl: bankroll - cur.startBankroll,
+          peakBankroll: Math.max(cur.peakBankroll, bankroll),
+          totalFeesPaidSol: cur.totalFeesPaidSol + fee,
+          tradeHistory: [entry, ...cur.tradeHistory].slice(0, MAX_HISTORY),
+          log: prepend(
+            cur.log,
+            {
+              id: id(),
+              ts: Date.now(),
+              type: "execution",
+              summary: `EXIT_EXECUTED · ${p.token} · ${reason.toUpperCase()} · sig ${signature.slice(0, 8)}… · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+            },
+            {
+              id: id(),
+              ts: Date.now(),
+              type: "audit" as const,
+              summary: `Audit#${entry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
+            },
+          ).slice(0, MAX_LOG),
+        }));
+      },
       pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress }) => {
         const s = get();
         if (!s.activeVenues[venue]) return null;

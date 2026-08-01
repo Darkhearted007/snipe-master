@@ -11,10 +11,12 @@ import { Button } from "@/components/ui/button";
 import { WalletBar as RuntimeWalletBar } from "@/components/wallet-bar";
 import { useLiveExecutor } from "@/hooks/use-live-executor";
 import { useLiveExecution } from "@/hooks/use-live-execution";
+import { useLivePriceFeed } from "@/hooks/use-live-price-feed";
+import { useAutoExitExecutor } from "@/hooks/use-auto-exit-executor";
 import { requestNonce, verifySiws } from "@/lib/auth.functions";
 import { SOL_MINT } from "@/lib/jupiter";
 import { useBotStore } from "@/lib/bot-store";
-import type { Opportunity } from "@/lib/bot-types";
+import type { Opportunity, Position } from "@/lib/bot-types";
 import { useAutoExecutor } from "@/hooks/use-auto-executor";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -31,6 +33,17 @@ export function LiveExecutorMount() {
 
 export function AutoExecutorMount() {
   useAutoExecutor();
+  return null;
+}
+
+export function LivePriceFeedMount() {
+  const hasLivePositions = useBotStore((s) => s.positions.some((p) => p.live));
+  useLivePriceFeed(hasLivePositions);
+  return null;
+}
+
+export function AutoExitExecutorMount() {
+  useAutoExitExecutor();
   return null;
 }
 
@@ -138,6 +151,7 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
             opportunityId: opp.id,
             sizeSol: committed.sizeSol,
             signature: result.signature,
+            tokensReceivedRaw: result.outAmount,
           });
           logAudit(
             `LIVE_SWAP_CONFIRMED · ${opp.token} · in ${amountLamports} lamports · out ${result.outAmount} · impact ${result.priceImpactPct}%`,
@@ -163,6 +177,81 @@ export function LiveExecuteButton({ opp }: { opp: Opportunity }) {
       }}
     >
       {busy ? "Executing…" : "Execute"}
+    </Button>
+  );
+}
+
+/** Close button for live positions. Executes an on-chain sell (pump.fun
+ *  bonding-curve or Jupiter AMM) to return SOL to the wallet, then calls
+ *  confirmLiveExit for bookkeeping. For paper positions the caller should
+ *  use the plain closePosition() path instead. */
+export function LiveCloseButton({ position }: { position: Position }) {
+  const confirmLiveExit = useBotStore((s) => s.confirmLiveExit);
+  const logAudit = useBotStore((s) => s.logAudit);
+  const { executeLiveSell, walletReady } = useLiveExecution();
+  const [busy, setBusy] = useState(false);
+
+  const mint = position.mint ?? (position as { mintAddress?: string | null }).mintAddress;
+  const isPumpFunBondingCurve = position.venue === "pumpfun";
+
+  // AMM tokens need an explicit token amount for the Jupiter quote. If the
+  // entry didn't record it, we can't sell via Jupiter — show a disabled
+  // state with an explanatory tooltip.
+  const missingAmmAmount = !isPumpFunBondingCurve && !position.tokensReceivedRaw;
+
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={!walletReady || busy || missingAmmAmount || !mint}
+      title={
+        missingAmmAmount
+          ? "Token amount unknown — cannot route AMM sell"
+          : !mint
+            ? "No mint address"
+            : "Sell on-chain and return SOL to wallet"
+      }
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (!mint) return;
+        setBusy(true);
+        try {
+          const result = await executeLiveSell({
+            mint,
+            slippageBps: 500,
+            maxPriceImpactPct: 20,
+            isPumpFunBondingCurve,
+            tokenAmountRaw: position.tokensReceivedRaw,
+          });
+          const solReceived = Number(result.solReceived) / LAMPORTS_PER_SOL;
+          confirmLiveExit({
+            positionId: position.id,
+            signature: result.signature,
+            solReceived,
+          });
+          logAudit(
+            `LIVE_SELL_CONFIRMED · ${position.token} · sig ${result.signature.slice(0, 8)}… · sol ${solReceived.toFixed(5)} · impact ${result.priceImpactPct}%`,
+            "execution",
+          );
+          toast.success(`Position closed · ${position.token}`, {
+            description: `${solReceived.toFixed(4)} SOL returned to wallet`,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const stage = (err as { stage?: string }).stage;
+          logAudit(
+            `LIVE_SELL_FAILED${stage ? ` · stage=${stage}` : ""} · ${position.token} · ${message}`,
+            "error",
+          );
+          toast.error("Live sell failed", {
+            description: stage ? `${stage}: ${message}` : message,
+          });
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? "Selling…" : "Close"}
     </Button>
   );
 }

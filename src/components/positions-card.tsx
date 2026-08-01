@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useBotStore } from "@/lib/bot-store";
 import { cn } from "@/lib/utils";
+import { LazyLiveCloseButton } from "@/components/wallet-lazy";
 
 export function PositionsCard() {
   const positions = useBotStore((s) => s.positions);
@@ -73,9 +74,13 @@ export function PositionsCard() {
                     <div className="text-danger">{p.sl.toFixed(2)}x</div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="ghost" onClick={() => close(p.id)}>
-                      Close
-                    </Button>
+                    {p.live ? (
+                      <LazyLiveCloseButton position={p} />
+                    ) : (
+                      <Button size="sm" variant="ghost" onClick={() => close(p.id)}>
+                        Close
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               );
