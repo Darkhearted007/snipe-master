@@ -16,8 +16,9 @@ export type SupabaseEnvStatus =
 // Publishable (anon) fallbacks — safe to ship in client bundle. These are
 // used ONLY if Vite fails to inline the env vars at build time, so the app
 // never relapses into the "Backend configuration missing" screen.
-const FALLBACK_URL = "https://wqpykfbacsczqvvigaqr.supabase.co";
-const FALLBACK_KEY = "sb_publishable_9CcocmqcwnlO84vCVvrSKg_g2RrxgGG";
+import { FALLBACK_SUPABASE_URL, FALLBACK_SUPABASE_PUBLISHABLE_KEY } from "@/lib/supabase-fallback";
+const FALLBACK_URL = FALLBACK_SUPABASE_URL;
+const FALLBACK_KEY = FALLBACK_SUPABASE_PUBLISHABLE_KEY;
 
 export function getSupabaseEnvStatus(): SupabaseEnvStatus {
   const url =
