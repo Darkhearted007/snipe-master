@@ -252,13 +252,27 @@ export async function evaluateMintSafety(
   const reasons: string[] = [];
   let score = 100;
 
+  // Pump.fun bonding-curve tokens (lpMint === null → lpStatus will be
+  // "not-applicable") ALWAYS have active mint + freeze authority pre-
+  // migration — these are only revoked after the token migrates to an AMM
+  // like Raydium. Penalizing -35 each for this structurally-normal state
+  // drove every pump.fun token's score to 30, below the minSafety threshold,
+  // causing the bot to skip every trade. For bonding-curve tokens we use a
+  // reduced penalty (-10 each) that reflects "this token can still be
+  // minted/frozen but that's expected at this stage" rather than treating
+  // it as a critical rug risk. Tokens that have already migrated (lpMint
+  // != null) still get the full -35 penalty — active authority on a
+  // migrated token IS a real red flag.
+  const isPumpFunBondingCurve = lpMint == null;
+  const authorityPenalty = isPumpFunBondingCurve ? 10 : 35;
+
   if (authority.mintAuthorityActive !== false) {
     reasons.push("mint-authority-not-revoked");
-    score -= 35;
+    score -= authorityPenalty;
   }
   if (authority.freezeAuthorityActive !== false) {
     reasons.push("freeze-authority-not-revoked");
-    score -= 35;
+    score -= authorityPenalty;
   }
   if (typeof holders.topHolderPct === "number" && holders.topHolderPct > 0.5) {
     reasons.push("holder-concentration-too-high");

@@ -103,14 +103,26 @@ function summarize(
   const combinedScore =
     score != null && onChain != null ? Math.min(score, onChain.score) : (onChain?.score ?? score);
 
-  // A hard on-chain red flag (active authority, failed honeypot probe)
-  // forces danger regardless of what rugcheck's aggregated score says —
-  // ground truth overrides a third party's report, not the other way round.
+  // A hard on-chain red flag forces "danger" regardless of what rugcheck's
+  // aggregated score says — ground truth overrides a third party's report.
+  //
+  // IMPORTANT: active mint/freeze authority is ONLY a hard fail for tokens
+  // that have already migrated to an AMM (Raydium, Orca, etc.) where a
+  // separate LP mint exists. Pump.fun bonding-curve tokens (lpStatus ===
+  // "not-applicable") ALWAYS have active mint/freeze authority pre-migration
+  // — this is structurally normal and NOT a rug signal. Treating it as one
+  // (as the original code did) caused every pump.fun token to get a "danger"
+  // verdict, which is why the bot skipped 80+ trades without entering one.
+  //
+  // The one on-chain signal that IS a hard fail regardless of venue: a
+  // confirmed honeypot (honeypotSellable === false) — the token literally
+  // cannot be sold, so funds would be locked forever.
+  const isPumpFunBondingCurve = onChain != null && onChain.lpStatus === "not-applicable";
   const onChainHardFail =
     onChain != null &&
-    (onChain.mintAuthorityActive === true ||
-      onChain.freezeAuthorityActive === true ||
-      onChain.honeypotSellable === false);
+    (onChain.honeypotSellable === false ||
+      (!isPumpFunBondingCurve &&
+        (onChain.mintAuthorityActive === true || onChain.freezeAuthorityActive === true)));
 
   const verdict: SafetyVerdict["verdict"] = onChainHardFail
     ? "danger"

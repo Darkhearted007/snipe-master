@@ -29,6 +29,7 @@ import { SolanaProviders } from "@/lib/solana-provider";
 import { useServerPersistence } from "@/hooks/use-server-persistence";
 import { useCouncilMemory } from "@/hooks/use-council-memory";
 import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
+import { useSafetyResolver } from "@/hooks/use-safety-resolver";
 import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
@@ -182,6 +183,7 @@ function AppLayout({ children }: { children: ReactNode }) {
   useCouncilMemory();
   const mode = useBotStore((s) => s.mode);
   useDexScreenerStream(mode === "live");
+  useSafetyResolver(mode === "live");
   const walletReady = useWalletReady();
   return (
     <SidebarProvider>
