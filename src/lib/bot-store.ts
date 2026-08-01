@@ -199,11 +199,25 @@ interface BotState {
     symbol: string;
     liquiditySol: number;
     tokenAddress?: string;
+    /** Optional USD price from DexScreener. When present, stored as
+     *  `entryPrice` so confirmLiveEntry uses a real price instead of
+     *  the 1.0 fallback. This makes TP/SL thresholds (12%/6%) track
+     *  actual market price movement rather than an arbitrary unit. */
+    priceUsd?: number | null;
   }) => string | null;
   applySafetyVerdict: (input: {
     opportunityId: string;
     score: number | null;
     verdict: "safe" | "caution" | "danger" | "unknown";
+    /** Optional safety flags from the rugcheck endpoint. When present,
+     *  these are checked against the user's SafetyFilters config
+     *  (requireLpLocked, blockHoneypots, maxHolderConcentrationPct)
+     *  so the dead config actually gates entry decisions. */
+    flags?: {
+      lpLocked: boolean | null;
+      topHolderPct: number | null;
+      honeypotSellable: boolean | null;
+    };
   }) => void;
   setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => void;
   /** Pure eligibility check — no state writes. Safe to call during render
@@ -261,7 +275,15 @@ const initial = {
   totalFeesPaidSol: 0,
   equity: [{ ts: Date.now(), value: initialBankroll }] as EquityPoint[],
   guardrails: {
-    maxPositionSol: 0.02,
+    // 0.05 SOL (~$7.50) is the minimum position size that produces
+    // meaningful net profit after Solana tx fees (~0.000005 SOL × 2)
+    // and swap slippage. The previous 0.02 SOL cap yielded max profit
+    // of 0.0024 SOL per winning trade (12% TP), which was barely above
+    // gas costs. With 0.05 SOL, a 12% TP yields 0.006 SOL — enough to
+    // cover fees and produce real returns. The position size formula
+    // (min(bankroll × 0.1, maxPositionSol)) still caps risk at 10% of
+    // bankroll per trade.
+    maxPositionSol: 0.05,
     dailyLossLimitPct: 20,
     drawdownLimitPct: 15,
     duplicateGuard: true,
@@ -951,8 +973,20 @@ export const useBotStore = create<BotState>()(
             reasons.push(
               `liquidity ${liquiditySol.toFixed(1)} < ${s.safetyFilters.minLiquiditySol} SOL`,
             );
-          if (s.guardrails.duplicateGuard && s.positions.some((p) => p.token === token))
-            reasons.push("duplicate position");
+          if (s.guardrails.duplicateGuard) {
+            // Check by mint first (canonical on-chain identity), then
+            // fall back to token symbol for legacy opportunities.
+            const hasDup =
+              (mint != null &&
+                s.positions.some(
+                  (p) =>
+                    p.live &&
+                    (p.mint === mint ||
+                      (p as Position & { mintAddress?: string | null }).mintAddress === mint),
+                )) ||
+              s.positions.some((p) => p.token === token);
+            if (hasDup) reasons.push("duplicate position");
+          }
           // Confidence floor tracks the safety threshold so a token that
           // passes minSafety isn't separately blocked by a stale hardcoded
           // confidence gate. Previously this was a fixed 55 — higher than
@@ -1157,8 +1191,24 @@ export const useBotStore = create<BotState>()(
         if (!s.walletConnected || !s.walletAddress)
           return { ok: false as const, error: "Wallet not connected" };
         if (s.guardrailBreached) return { ok: false as const, error: "Guardrail breached" };
-        if (s.positions.some((p) => p.token === opportunity.token && p.live))
-          return { ok: false as const, error: "Duplicate live position" };
+        // Duplicate guard: check by mint (canonical on-chain identity)
+        // first, then fall back to token symbol. This prevents re-entry
+        // into the same token when DexScreener reports it with a
+        // different symbol variant.
+        const oppMint =
+          opportunity.mint ??
+          (opportunity as Opportunity & { tokenAddress?: string | null }).tokenAddress ??
+          null;
+        const hasDup =
+          (oppMint != null &&
+            s.positions.some(
+              (p) =>
+                p.live &&
+                (p.mint === oppMint ||
+                  (p as Position & { mintAddress?: string | null }).mintAddress === oppMint),
+            )) ||
+          s.positions.some((p) => p.token === opportunity.token && p.live);
+        if (hasDup) return { ok: false as const, error: "Duplicate live position" };
         const minSize = Math.max(0.001, Math.min(s.bankroll * 0.1, s.guardrails.maxPositionSol));
         if (!Number.isFinite(minSize) || minSize <= 0 || minSize > s.bankroll)
           return {
@@ -1329,7 +1379,7 @@ export const useBotStore = create<BotState>()(
           ).slice(0, MAX_LOG),
         }));
       },
-      pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress }) => {
+      pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress, priceUsd }) => {
         const s = get();
         if (!s.activeVenues[venue]) return null;
         // Pump.fun bonding-curve tokens often report liquidity.usd = null
@@ -1367,6 +1417,14 @@ export const useBotStore = create<BotState>()(
           live: s.mode === "live",
           mint: tokenAddress ?? undefined,
           tokenAddress: tokenAddress ?? null,
+          // Store the real USD price as entryPrice so confirmLiveEntry
+          // sets TP/SL (entry × 1.12 / × 0.94) against actual market
+          // price, not the 1.0 fallback. Without this, live positions
+          // always start at entry=1.0 and the price feed's ratio math
+          // (current = entry × priceNow/priceAtEntry) works but the
+          // absolute TP/SL values are meaningless.
+          entryPrice:
+            priceUsd != null && Number.isFinite(priceUsd) && priceUsd > 0 ? priceUsd : undefined,
         };
         set((cur) => ({
           opportunities: [opportunity, ...cur.opportunities].slice(0, MAX_FEED),
@@ -1379,7 +1437,7 @@ export const useBotStore = create<BotState>()(
         }));
         return oppId;
       },
-      applySafetyVerdict: ({ opportunityId, score, verdict }) =>
+      applySafetyVerdict: ({ opportunityId, score, verdict, flags }) =>
         set((s) => {
           const opp = s.opportunities.find((o) => o.id === opportunityId);
           if (!opp) return {};
@@ -1406,8 +1464,67 @@ export const useBotStore = create<BotState>()(
               `liquidity ${opp.liquiditySol.toFixed(1)} < ${s.safetyFilters.minLiquiditySol} SOL`,
             );
           if (verdict === "danger") reasons.push(`verdict=${verdict}`);
-          if (s.guardrails.duplicateGuard && s.positions.some((p) => p.token === opp.token))
-            reasons.push("duplicate position");
+          // Wire up the previously-dead SafetyFilters config. These flags
+          // come from the rugcheck endpoint's ground-truth on-chain check +
+          // rugcheck.xyz report. Without this, requireLpLocked=true,
+          // blockHoneypots=true, and maxHolderConcentrationPct=25 were
+          // silently ignored — unsafe tokens passed through the gate.
+          //
+          // LP lock: only check for AMM tokens (pump.fun bonding-curve
+          // tokens have no LP to lock — the curve IS the liquidity).
+          if (
+            s.safetyFilters.requireLpLocked &&
+            opp.venue !== "pumpfun" &&
+            flags?.lpLocked != null &&
+            !flags.lpLocked
+          )
+            reasons.push("LP not locked");
+          // Honeypot: a confirmed honeypot (sellable === false) is already
+          // caught by the "danger" verdict from the rugcheck endpoint. But
+          // if the user has blockHoneypots=true and the probe was
+          // inconclusive (sellable === null), we also skip — better safe
+          // than sorry. If blockHoneypots=false, we let inconclusive
+          // probes through (the score already penalizes them).
+          if (
+            s.safetyFilters.blockHoneypots &&
+            flags?.honeypotSellable != null &&
+            !flags.honeypotSellable
+          )
+            reasons.push("honeypot (not sellable)");
+          // Holder concentration: skip if the top non-insider holder
+          // exceeds the configured threshold. A whale can dump and crash
+          // the price. null means we couldn't measure it — don't block.
+          if (
+            s.safetyFilters.maxHolderConcentrationPct > 0 &&
+            flags?.topHolderPct != null &&
+            flags.topHolderPct > s.safetyFilters.maxHolderConcentrationPct
+          )
+            reasons.push(
+              `holder concentration ${flags.topHolderPct.toFixed(1)}% > ${s.safetyFilters.maxHolderConcentrationPct}%`,
+            );
+          // Duplicate guard: check by MINT (canonical on-chain identity)
+          // in addition to token symbol. DexScreener's trending feed
+          // repeatedly surfaces the same tokens — checking by mint prevents
+          // a re-discovered opportunity for an open position from passing
+          // the gate when the symbol happens to differ (e.g. "SOL/USDC"
+          // vs "SOL"). The symbol check remains as a secondary guard for
+          // legacy opportunities without a mint.
+          if (s.guardrails.duplicateGuard) {
+            const oppMint = opp.mint ?? opp.tokenAddress ?? null;
+            if (
+              oppMint &&
+              s.positions.some(
+                (p) =>
+                  p.live &&
+                  (p.mint === oppMint ||
+                    (p as Position & { mintAddress?: string | null }).mintAddress === oppMint),
+              )
+            ) {
+              reasons.push("duplicate position (mint)");
+            } else if (s.positions.some((p) => p.token === opp.token)) {
+              reasons.push("duplicate position");
+            }
+          }
           const decision: Opportunity["decision"] = reasons.length ? "skip" : "enter";
           const confidence = Math.max(
             1,

@@ -3,31 +3,31 @@
 // pump.fun bonding-curve tokens (and any AMM token) don't have a reliable
 // on-chain price oracle we can read cheaply from the browser. DexScreener's
 // REST API (`/latest/dex/tokens/{mint}`) is CORS-open and returns the current
-// `priceUsd` for every pair involving the mint \u2014 we poll it on an interval
+// `priceUsd` for every pair involving the mint — we poll it on an interval
 // and feed the results into `updateLivePositionPrice()` so the store's equity
 // curve, TP/SL checks, and P&L display stay accurate in real time.
 //
 // Without this hook, live positions' `current` price is frozen at `entry`
 // forever (tick() skips live positions, and nothing else calls
 // updateLivePositionPrice). That means TP/SL exits never fire and the P&L
-// shown in the UI is always zero \u2014 the bot can't auto-exit.
+// shown in the UI is always zero — the bot can't auto-exit.
 //
 // Design:
-//   \u2022 Only polls when there are live positions (no wasted requests when the
+//   • Only polls when there are live positions (no wasted requests when the
 //     book is empty or in paper mode).
-//   \u2022 Batches all open-position mints into one poll per interval (DexScreener
+//   • Batches all open-position mints into one poll per interval (DexScreener
 //     accepts comma-separated token addresses in a single request).
-//   \u2022 Tracks the first-observed USD price per mint as the "entry reference"
+//   • Tracks the first-observed USD price per mint as the "entry reference"
 //     so the pnl ratio (current/entry) accurately reflects price movement
 //     since the position was first seen by the feed.
-//   \u2022 Catches and logs all errors \u2014 a failed poll is non-fatal; the next
+//   • Catches and logs all errors — a failed poll is non-fatal; the next
 //     interval retries.
 
 import { useEffect, useRef } from "react";
 import { useBotStore } from "@/lib/bot-store";
 import type { Position } from "@/lib/bot-types";
 
-const POLL_INTERVAL_MS = 10_000; // 10s \u2014 fast enough for TP/SL, gentle on the API
+const POLL_INTERVAL_MS = 10_000; // 10s — fast enough for TP/SL, gentle on the API
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_MINTS_PER_REQUEST = 50; // DexScreener limit
 
@@ -44,7 +44,7 @@ type DexScreenerTokenResponse = {
 
 /**
  * Fetch current USD prices for a batch of token mints from DexScreener.
- * Returns a map of mint \u2192 priceUsd. Picks the pair with the highest
+ * Returns a map of mint → priceUsd. Picks the pair with the highest
  * liquidity for each mint (most reliable price).
  */
 async function fetchTokenPrices(
@@ -104,7 +104,7 @@ function positionMint(p: Position): string | null {
 export function useLivePriceFeed(enabled: boolean) {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // mint \u2192 entry USD price (first observed). Persists across re-renders.
+  // mint → entry USD price (first observed). Persists across re-renders.
   const entryPriceUsdRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
@@ -149,10 +149,24 @@ export function useLivePriceFeed(enabled: boolean) {
           const priceUsd = prices.get(mint);
           if (!priceUsd || !Number.isFinite(priceUsd) || priceUsd <= 0) continue;
 
+          // With the entryPrice fix, the position's `entry` is now the
+          // real USD price at discovery time (from DexScreener). So we
+          // can set `current` directly to the latest USD price — no
+          // ratio math needed. The P&L formula (pnl = (current - entry)
+          // × sizeSol / entry) then reflects real price movement.
+          //
+          // For positions created before the entryPrice fix (entry = 1.0),
+          // we fall back to the ratio approach: current = entry ×
+          // (priceNow / firstObservedPrice). The entryPriceUsdRef map
+          // tracks the first observed price per mint for this case.
           const entryUsd = entryPriceUsdRef.current.get(mint);
-          if (entryUsd == null) {
-            // First time we see this mint's price \u2014 record it as the entry
-            // reference. No price change yet, so current stays at entry.
+          if (p.entry > 0 && p.entry !== 1.0) {
+            // Real entry price — set current directly to the USD price.
+            if (Number.isFinite(priceUsd) && priceUsd > 0 && priceUsd !== p.current) {
+              updateLivePositionPrice(mint, priceUsd);
+            }
+          } else if (entryUsd == null) {
+            // Legacy position (entry = 1.0): record first observed price.
             entryPriceUsdRef.current.set(mint, priceUsd);
           } else if (entryUsd > 0) {
             const ratio = priceUsd / entryUsd;
@@ -163,12 +177,12 @@ export function useLivePriceFeed(enabled: boolean) {
           }
         }
       } catch (e) {
-        // Non-fatal \u2014 the next interval retries. Only log if it's not an
+        // Non-fatal — the next interval retries. Only log if it's not an
         // abort (aborts happen on unmount / re-render).
         if (!(e instanceof DOMException && e.name === "AbortError")) {
           const logAudit = useBotStore.getState().logAudit;
           logAudit(
-            `PriceFeed \u00b7 poll failed: ${e instanceof Error ? e.message : String(e)}`,
+            `PriceFeed · poll failed: ${e instanceof Error ? e.message : String(e)}`,
             "audit",
           );
         }
