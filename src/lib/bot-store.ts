@@ -266,6 +266,7 @@ const initial = {
     requireLpLocked: true,
     blockHoneypots: true,
     maxHolderConcentrationPct: 25,
+    autoExecute: false,
   } as SafetyFilters,
   watchlist: [],
   healthTickErrors: 0,
@@ -1155,17 +1156,56 @@ export const useBotStore = create<BotState>()(
         return oppId;
       },
       applySafetyVerdict: ({ opportunityId, score, verdict }) =>
-        set((s) => ({
-          opportunities: s.opportunities.map((o) =>
-            o.id === opportunityId ? { ...o, safetyScore: score ?? undefined, verdict } : o,
-          ),
-          log: prepend(s.log, {
-            id: id(),
-            ts: Date.now(),
-            type: "audit",
-            summary: `OPPORTUNITY_SCORED · ${opportunityId} · verdict=${verdict} · score=${String(score)}`,
-          }).slice(0, MAX_LOG),
-        })),
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          if (!opp) return {};
+          // Previously this only wrote `safetyScore` + `verdict` — the feed
+          // kept showing safety=-1 and decision="skip" forever, even after a
+          // real safety check returned a passing score. Now we also update
+          // the fields the feed renders (`safety`, `confidence`) and
+          // re-evaluate the decision so a safe token flips from SKIP to
+          // ENTER, which is what makes auto-execute (and the manual Execute
+          // button gate) actually fire.
+          const safety = score != null ? score : -1;
+          const reasons: string[] = [];
+          if (safety >= 0 && safety < s.safetyFilters.minSafety)
+            reasons.push(`safety ${safety} < ${s.safetyFilters.minSafety}`);
+          if (safety < 0) reasons.push("safety not yet scored");
+          if (opp.liquiditySol < s.safetyFilters.minLiquiditySol)
+            reasons.push(
+              `liquidity ${opp.liquiditySol.toFixed(1)} < ${s.safetyFilters.minLiquiditySol} SOL`,
+            );
+          if (verdict === "danger") reasons.push(`verdict=${verdict}`);
+          if (s.guardrails.duplicateGuard && s.positions.some((p) => p.token === opp.token))
+            reasons.push("duplicate position");
+          const decision: Opportunity["decision"] = reasons.length ? "skip" : "enter";
+          const confidence = Math.max(
+            1,
+            Math.min(99, Math.round(safety < 0 ? opp.confidence : safety)),
+          );
+          const updated = s.opportunities.map((o) =>
+            o.id === opportunityId
+              ? {
+                  ...o,
+                  safetyScore: score ?? undefined,
+                  verdict,
+                  safety,
+                  confidence,
+                  decision,
+                  reason: reasons.join(" · ") || o.reason,
+                }
+              : o,
+          );
+          return {
+            opportunities: updated,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "audit",
+              summary: `OPPORTUNITY_SCORED · ${opportunityId} · verdict=${verdict} · score=${String(score)} · ${decision.toUpperCase()}`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
       hydrateFromServer: (payload) => {
         set((s) => ({
           log: prepend(s.log, {

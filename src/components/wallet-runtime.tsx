@@ -15,6 +15,7 @@ import { requestNonce, verifySiws } from "@/lib/auth.functions";
 import { SOL_MINT } from "@/lib/jupiter";
 import { useBotStore } from "@/lib/bot-store";
 import type { Opportunity } from "@/lib/bot-types";
+import { useAutoExecutor } from "@/hooks/use-auto-executor";
 import { supabase } from "@/integrations/supabase/client";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -25,6 +26,11 @@ export function WalletBar() {
 
 export function LiveExecutorMount() {
   useLiveExecutor();
+  return null;
+}
+
+export function AutoExecutorMount() {
+  useAutoExecutor();
   return null;
 }
 
