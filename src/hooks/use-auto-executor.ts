@@ -22,16 +22,22 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 import { useBotStore } from "@/lib/bot-store";
 import { useLiveExecution } from "./use-live-execution";
+import { useSniperSigner } from "@/components/sniper-signer-provider";
 import { SOL_MINT } from "@/lib/jupiter";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export function useAutoExecutor() {
   const { publicKey, signTransaction, connected } = useWallet();
+  const { signer: sniper } = useSniperSigner();
   const { executeSwap, walletReady } = useLiveExecution();
   const processedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Promise<unknown>>(Promise.resolve());
   const enabledRef = useRef(false);
+
+  // The Sniper Signer (burner key) counts as a signing wallet with no
+  // popups; otherwise the browser wallet extension must be connected.
+  const canSign = sniper ? true : !!(connected && publicKey && signTransaction);
 
   useEffect(() => {
     const unsub = useBotStore.subscribe((state) => {
@@ -44,9 +50,7 @@ export function useAutoExecutor() {
         state.safetyFilters.autoExecute &&
         state.liveConfirmed &&
         state.walletConnected &&
-        connected &&
-        !!publicKey &&
-        !!signTransaction;
+        canSign;
       enabledRef.current = armed;
       if (!armed) return;
 
@@ -137,5 +141,5 @@ export function useAutoExecutor() {
       });
     });
     return () => unsub();
-  }, [connected, publicKey, signTransaction, executeSwap, walletReady]);
+  }, [connected, publicKey, signTransaction, sniper, canSign, executeSwap, walletReady]);
 }

@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Sparkles, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
   const guardrails = useBotStore((s) => s.guardrails);
   const setGuardrails = useBotStore((s) => s.setGuardrails);
+  const safetyFilters = useBotStore((s) => s.safetyFilters);
+  const setSafetyFilters = useBotStore((s) => s.setSafetyFilters);
   const bankroll = useBotStore((s) => s.bankroll);
   const startBankroll = useBotStore((s) => s.startBankroll);
   const peakBankroll = useBotStore((s) => s.peakBankroll);
@@ -188,6 +190,42 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
                 Peak: <span className="font-mono">{peakBankroll.toFixed(4)}</span>
               </span>
             </div>
+          </div>
+        </section>
+
+        {/* Sniper exits — trailing stop */}
+        <section className="space-y-2 border-t pt-4">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="trail-toggle" className="flex items-center gap-1.5 text-xs">
+              <TrendingUp className="h-3.5 w-3.5 text-live" />
+              Trailing stop (sniper exits)
+            </Label>
+            <Switch
+              id="trail-toggle"
+              checked={safetyFilters.trailingStopEnabled}
+              onCheckedChange={(v) => setSafetyFilters({ trailingStopEnabled: v })}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Rides winners: once a position is in profit, the stop follows the price peak and dumps
+            the bag on pullback instead of round-tripping at the fixed take-profit. Losses still cut
+            at the stop-loss.
+          </p>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Trail distance from peak</span>
+            <span className="font-mono text-xs">{safetyFilters.trailingStopPct}%</span>
+          </div>
+          <Slider
+            value={[safetyFilters.trailingStopPct]}
+            min={4}
+            max={25}
+            step={1}
+            disabled={!safetyFilters.trailingStopEnabled}
+            onValueChange={(v) => setSafetyFilters({ trailingStopPct: v[0] })}
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>Tighter = sell sooner</span>
+            <span>Wider = ride longer pumps</span>
           </div>
         </section>
 

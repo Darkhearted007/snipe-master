@@ -16,6 +16,7 @@ import type {
   WatchSource,
 } from "./bot-types";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "./bot-types";
+import { parseSniperSecretKey } from "./sniper-signer";
 import {
   buildDebrief,
   scoutBiasForToken,
@@ -183,6 +184,12 @@ interface BotState {
   clearAuto: () => void;
   setAutoCurate: (v: boolean) => void;
   setSafetyFilters: (f: Partial<SafetyFilters>) => void;
+  /** Optional burner-key auto-signer (Sniper Signer). When set, live buys
+   *  and sells sign locally with no wallet popup — the bot can run
+   *  unattended. Stored in localStorage: use ONLY with a dedicated
+   *  low-balance burner wallet, never your main wallet. */
+  sniperSecretKey: string | null;
+  setSniperSigner: (secretKey: string | null) => { ok: boolean; error?: string; address?: string };
   clearLogs: () => void;
   clearHistory: () => void;
   logAudit: (summary: string, type?: DecisionLogEntry["type"]) => void;
@@ -313,12 +320,24 @@ const initial = {
     requireLpLocked: true,
     blockHoneypots: true,
     maxHolderConcentrationPct: 25,
-    autoExecute: false,
+    // Sniper behavior: auto-execute is ON by default in live mode so the
+    // bot actually enters passing opportunities without a manual click
+    // (the #1 reason the bot appeared to "never trade"). It still requires
+    // live mode + running + connected wallet + live-confirmed
+    // acknowledgement, and users can switch it off on the Watchlist page.
+    autoExecute: true,
+    // Sniper exits: once a position is in profit the trailing stop follows
+    // the price peak and dumps the bag on pullback instead of waiting for
+    // the fixed take-profit round-trip. The fixed stop-loss still cuts
+    // losses when the position never gains.
+    trailingStopEnabled: true,
+    trailingStopPct: 8,
   } as SafetyFilters,
   watchlist: [],
   healthTickErrors: 0,
   lastHealthAt: null as number | null,
   walletName: null as string | null,
+  sniperSecretKey: null as string | null,
   councilMemory: [] as CouncilMemoryEntry[],
   councilCycleId: `cyc_${Math.random().toString(36).slice(2, 10)}`,
   tradesSinceDebrief: 0,
@@ -326,6 +345,45 @@ const initial = {
   cycleClosedTrades: [] as TradeHistoryEntry[],
   onCouncilAppend: undefined as ((e: CouncilMemoryEntry) => void) | undefined,
 };
+
+// Persisted-settings migration (v2 → v3). v2 shipped with live-mode
+// `safetyFilters.autoExecute` defaulting to OFF, which silently prevented
+// the auto-executor from entering trades. Run once at module load — before
+// the store hydrates — to rewrite the stored blob so existing users inherit
+// the new on-by-default behavior. They can still switch it off afterwards;
+// that preference then persists normally. Bump PERSIST_VERSION alongside
+// the store's persist `version` whenever a future migration is needed.
+const PERSIST_KEY = "snipe-master-bot";
+const PERSIST_VERSION = 3;
+function migratePersistedSettingsV3() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as {
+      state?: {
+        safetyFilters?: {
+          autoExecute?: boolean;
+          trailingStopEnabled?: boolean;
+          trailingStopPct?: number;
+        };
+      };
+      version?: number;
+    };
+    if (parsed.version == null || parsed.version >= PERSIST_VERSION) return;
+    const filters = parsed.state?.safetyFilters;
+    if (filters) {
+      filters.autoExecute = true;
+      if (typeof filters.trailingStopEnabled !== "boolean") filters.trailingStopEnabled = true;
+      if (typeof filters.trailingStopPct !== "number") filters.trailingStopPct = 8;
+    }
+    parsed.version = PERSIST_VERSION;
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(parsed));
+  } catch {
+    // Corrupt/foreign blob — persist starts fresh or merges current defaults.
+  }
+}
+migratePersistedSettingsV3();
 
 export const useBotStore = create<BotState>()(
   persist(
@@ -673,6 +731,11 @@ export const useBotStore = create<BotState>()(
           const p = s.positions[idx];
           if (p.current === currentPrice) return {};
           const updated = { ...p, current: currentPrice };
+          // Track the price peak so tick() can trail the stop behind
+          // winners (sniper exits) instead of only using fixed TP/SL.
+          if (currentPrice > (p.peakPrice ?? p.current)) {
+            updated.peakPrice = currentPrice;
+          }
           const positions = [...s.positions];
           positions[idx] = updated;
           // Recompute equity with the new price so peak / drawdown stay
@@ -760,6 +823,33 @@ export const useBotStore = create<BotState>()(
       setAutoCurate: (v) => set({ autoCurate: v }),
       setSafetyFilters: (f) =>
         set((s) => ({ safetyFilters: { ...s.safetyFilters, ...f }, guardrailBreached: false })),
+      setSniperSigner: (secretKey) => {
+        if (secretKey == null) {
+          set((s) => ({
+            sniperSecretKey: null,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "audit",
+              summary: "Sniper signer removed — wallet popup signing restored",
+            }).slice(0, MAX_LOG),
+          }));
+          return { ok: true as const };
+        }
+        const parsed = parseSniperSecretKey(secretKey);
+        if (!parsed.ok) return { ok: false as const, error: parsed.error };
+        const address = parsed.keypair.publicKey.toBase58();
+        set((s) => ({
+          sniperSecretKey: secretKey.trim(),
+          log: prepend(s.log, {
+            id: id(),
+            ts: Date.now(),
+            type: "wallet",
+            summary: `Sniper signer armed · ${shortAddr(address)} · auto-sign (no popups)`,
+          }).slice(0, MAX_LOG),
+        }));
+        return { ok: true as const, address };
+      },
       clearLogs: () => set({ log: [] }),
       clearHistory: () => set({ tradeHistory: [] }),
       logAudit: (summary, type = "audit") =>
@@ -853,19 +943,41 @@ export const useBotStore = create<BotState>()(
             // Only check TP/SL if the price feed has updated `current` away
             // from entry (otherwise current === entry and no threshold is hit).
             if (p.current !== p.entry) {
-              const hitTp = p.tp > 0 && p.current >= p.tp;
               const hitSl = p.sl > 0 && p.current <= p.sl;
-              if (hitTp || hitSl) {
-                const reason = hitTp ? "tp" : "sl";
-                remaining.push({ ...p, exitRequested: true, exitReason: reason });
+              if (hitSl) {
+                remaining.push({ ...p, exitRequested: true, exitReason: "sl" });
                 exitLogs.push({
                   id: id(),
                   ts: Date.now(),
                   type: "execution",
-                  summary: `EXIT_REQUESTED ${reason.toUpperCase()} ${p.token} · current ${p.current.toFixed(8)} · ${reason === "tp" ? "tp" : "sl"} ${reason === "tp" ? p.tp.toFixed(8) : p.sl.toFixed(8)} · pending on-chain sell`,
+                  summary: `EXIT_REQUESTED SL ${p.token} · current ${p.current.toFixed(8)} · sl ${p.sl.toFixed(8)} · pending on-chain sell`,
                 });
               } else {
-                remaining.push(p);
+                // Sniper exits: with the trailing stop enabled, a fixed TP
+                // no longer round-trips winners. Once the position has been
+                // in profit (peak > entry), the stop follows the peak and
+                // exits on a pullback — never below entry, so a trailing
+                // exit always locks in ≥ breakeven. The fixed SL still cuts
+                // losses when trailing is off or the position never gained.
+                const peak = p.peakPrice ?? Math.max(p.entry, p.current);
+                const trailingActive = s.safetyFilters.trailingStopEnabled && peak > p.entry;
+                const trailLevel = trailingActive
+                  ? Math.max(p.entry, peak * (1 - s.safetyFilters.trailingStopPct / 100))
+                  : Number.POSITIVE_INFINITY;
+                const hitTrail = p.current <= trailLevel;
+                const hitTp = !s.safetyFilters.trailingStopEnabled && p.tp > 0 && p.current >= p.tp;
+                if (hitTrail || hitTp) {
+                  const reason = hitTrail ? "trail" : "tp";
+                  remaining.push({ ...p, exitRequested: true, exitReason: reason });
+                  exitLogs.push({
+                    id: id(),
+                    ts: Date.now(),
+                    type: "execution",
+                    summary: `EXIT_REQUESTED ${reason.toUpperCase()} ${p.token} · current ${p.current.toFixed(8)}${reason === "trail" ? ` · trail ${trailLevel.toFixed(8)} (peak ${peak.toFixed(8)})` : ` · tp ${p.tp.toFixed(8)}`} · pending on-chain sell`,
+                  });
+                } else {
+                  remaining.push(p);
+                }
               }
             } else {
               remaining.push(p);
@@ -874,12 +986,20 @@ export const useBotStore = create<BotState>()(
           }
           const drift = (Math.random() - 0.48) * 0.035;
           const current = Math.max(1e-9, p.current * (1 + drift));
-          const hitTp = p.tp > 0 && current >= p.tp;
+          const peak = Math.max(p.peakPrice ?? p.entry, current);
           const hitSl = p.sl > 0 && current <= p.sl;
-          if (!hitTp && !hitSl) {
-            remaining.push({ ...p, current });
+          // Same sniper-exit semantics as live positions (see above).
+          const trailingActive = s.safetyFilters.trailingStopEnabled && peak > p.entry;
+          const trailLevel = trailingActive
+            ? Math.max(p.entry, peak * (1 - s.safetyFilters.trailingStopPct / 100))
+            : Number.POSITIVE_INFINITY;
+          const hitTrail = current <= trailLevel;
+          const hitTp = !s.safetyFilters.trailingStopEnabled && p.tp > 0 && current >= p.tp;
+          if (!hitSl && !hitTrail && !hitTp) {
+            remaining.push({ ...p, current, peakPrice: peak });
             continue;
           }
+          const reason = hitSl ? "sl" : hitTrail ? "trail" : "tp";
           const pnl = (current - p.entry) * (p.sizeSol / p.entry);
           const fee = s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
           const net = pnl - fee;
@@ -897,7 +1017,7 @@ export const useBotStore = create<BotState>()(
             entry: p.entry,
             exit: current,
             pnlSol: pnl,
-            reason: hitTp ? "tp" : "sl",
+            reason,
             feePaidSol: fee,
             netToUserSol: net,
             feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
@@ -908,7 +1028,7 @@ export const useBotStore = create<BotState>()(
             id: id(),
             ts: Date.now(),
             type: "execution",
-            summary: `EXIT ${hitTp ? "TP" : "SL"} ${p.token} · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+            summary: `EXIT ${reason.toUpperCase()} ${p.token} · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
           });
         }
 
@@ -1049,6 +1169,7 @@ export const useBotStore = create<BotState>()(
                 venue,
                 entry: price,
                 current: price,
+                peakPrice: price,
                 sizeSol,
                 tp: price * 1.12,
                 sl: price * 0.94,
@@ -1284,6 +1405,7 @@ export const useBotStore = create<BotState>()(
           // updateLivePositionPrice() to keep `current` accurate.
           entry: entryPrice,
           current: entryPrice,
+          peakPrice: entryPrice,
           live: true,
           // Set TP/SL based on entry price so tick() can detect exits when
           // the live price feed updates `current`. 12% take-profit, 6%
@@ -1623,7 +1745,7 @@ export const useBotStore = create<BotState>()(
       // persistence layer (use-server-persistence) is the canonical source
       // for trade history and logs when a Supabase session is active;
       // localStorage is only a cache for settings between reloads.
-      version: 2,
+      version: 3,
       // Custom merge: only pick the keys we persist. Without this, a user
       // upgrading from version 1 (which persisted the entire store including
       // tradeHistory/log/positions) would still see stale session data on
@@ -1641,6 +1763,7 @@ export const useBotStore = create<BotState>()(
           platformFeePct: p.platformFeePct ?? current.platformFeePct,
           guardrails: p.guardrails ?? current.guardrails,
           safetyFilters: p.safetyFilters ?? current.safetyFilters,
+          sniperSecretKey: p.sniperSecretKey ?? current.sniperSecretKey,
           activeVenues: p.activeVenues ?? current.activeVenues,
           autoCurate: p.autoCurate ?? current.autoCurate,
           walletName: p.walletName ?? current.walletName,
@@ -1655,6 +1778,7 @@ export const useBotStore = create<BotState>()(
         platformFeePct: s.platformFeePct,
         guardrails: s.guardrails,
         safetyFilters: s.safetyFilters,
+        sniperSecretKey: s.sniperSecretKey,
         activeVenues: s.activeVenues,
         autoCurate: s.autoCurate,
         walletName: s.walletName,

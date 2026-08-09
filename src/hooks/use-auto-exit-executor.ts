@@ -25,14 +25,20 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 import { useBotStore } from "@/lib/bot-store";
 import { useLiveExecution } from "./use-live-execution";
+import { useSniperSigner } from "@/components/sniper-signer-provider";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export function useAutoExitExecutor() {
   const { publicKey, signTransaction, connected } = useWallet();
+  const { signer: sniper } = useSniperSigner();
   const { executeLiveSell, walletReady } = useLiveExecution();
   const processedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Promise<unknown>>(Promise.resolve());
+
+  // The Sniper Signer (burner key) counts as a signing wallet with no
+  // popups; otherwise the browser wallet extension must be connected.
+  const canSign = sniper ? true : !!(connected && publicKey && signTransaction);
 
   useEffect(() => {
     const unsub = useBotStore.subscribe((state) => {
@@ -40,12 +46,7 @@ export function useAutoExitExecutor() {
       // the entry executor we don't require autoExecute to be on — once a
       // position is flagged for exit (TP/SL hit) we always want to sell to
       // lock in the gain or cut the loss. The flag itself is the consent.
-      const armed =
-        state.mode === "live" &&
-        state.walletConnected &&
-        connected &&
-        !!publicKey &&
-        !!signTransaction;
+      const armed = state.mode === "live" && state.walletConnected && canSign;
       if (!armed) return;
 
       // Find live positions flagged for exit that we haven't processed.
@@ -128,5 +129,5 @@ export function useAutoExitExecutor() {
       });
     });
     return () => unsub();
-  }, [connected, publicKey, signTransaction, executeLiveSell, walletReady]);
+  }, [connected, publicKey, signTransaction, sniper, canSign, executeLiveSell, walletReady]);
 }

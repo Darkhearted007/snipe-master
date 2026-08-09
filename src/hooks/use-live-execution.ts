@@ -9,6 +9,7 @@ import {
   SOL_MINT,
 } from "../lib/jupiter";
 import { PumpFunError, executePumpFunBuy, executePumpFunSell } from "../lib/pumpfun-swap";
+import { useSniperSigner } from "@/components/sniper-signer-provider";
 
 export interface LiveSwapParams {
   inputMint: string;
@@ -61,11 +62,20 @@ export interface LiveSellResult {
 export function useLiveExecution() {
   const { connection } = useConnection();
   const { publicKey, signTransaction, connected } = useWallet();
+  const { signer: sniper } = useSniperSigner();
+
+  // When the Sniper Signer (burner key) is armed it replaces the browser
+  // wallet extension as the signing path — same interface, no popups, so
+  // buys/sells can execute unattended. The wallet adapter is the fallback
+  // when no signer is set (Option B / manual popups).
+  const effectivePublicKey = sniper?.publicKey ?? publicKey;
+  const effectiveSignTransaction = sniper ? sniper.signTransaction : signTransaction;
+  const ready = !!effectivePublicKey && !!effectiveSignTransaction;
 
   const executeSwap = useCallback(
     async (params: LiveSwapParams): Promise<LiveSwapResult> => {
-      if (!connected || !publicKey || !signTransaction) {
-        throw new JupiterError("Wallet not connected", "quote");
+      if (!effectivePublicKey || !effectiveSignTransaction) {
+        throw new JupiterError("No signing wallet — connect one or arm the Sniper Signer", "quote");
       }
 
       // --- Pump.fun bonding-curve path ---
@@ -81,8 +91,8 @@ export function useLiveExecution() {
             priorityFeeLamports: params.priorityFeeLamports,
           },
           connection,
-          publicKey,
-          signTransaction,
+          effectivePublicKey,
+          effectiveSignTransaction,
         );
         // Convert PumpFunError stages to match the JupiterError stage
         // convention so callers logging `err.stage` get consistent values.
@@ -108,7 +118,7 @@ export function useLiveExecution() {
 
       const swapTxBase64 = await buildSwapTransaction({
         quote,
-        userPublicKey: publicKey.toBase58(),
+        userPublicKey: effectivePublicKey.toBase58(),
         priorityFeeLamports: params.priorityFeeLamports,
       });
 
@@ -120,7 +130,7 @@ export function useLiveExecution() {
       // is ever involved. Nothing server-side ever sees it.
       let signed: VersionedTransaction;
       try {
-        signed = await signTransaction(tx);
+        signed = await effectiveSignTransaction(tx);
       } catch (e) {
         throw new JupiterError(
           e instanceof Error ? e.message : "User rejected or wallet error",
@@ -169,7 +179,7 @@ export function useLiveExecution() {
         priceImpactPct: quote.priceImpactPct,
       };
     },
-    [connection, connected, publicKey, signTransaction],
+    [connection, effectivePublicKey, effectiveSignTransaction],
   );
 
   /**
@@ -189,8 +199,8 @@ export function useLiveExecution() {
    */
   const executeLiveSell = useCallback(
     async (params: LiveSellParams): Promise<LiveSellResult> => {
-      if (!connected || !publicKey || !signTransaction) {
-        throw new JupiterError("Wallet not connected", "quote");
+      if (!effectivePublicKey || !effectiveSignTransaction) {
+        throw new JupiterError("No signing wallet — connect one or arm the Sniper Signer", "quote");
       }
 
       // --- Pump.fun bonding-curve sell path ---
@@ -203,8 +213,8 @@ export function useLiveExecution() {
             tokenAmountRaw: params.tokenAmountRaw,
           },
           connection,
-          publicKey,
-          signTransaction,
+          effectivePublicKey,
+          effectiveSignTransaction,
         );
         return {
           signature: result.signature,
@@ -234,7 +244,7 @@ export function useLiveExecution() {
 
       const swapTxBase64 = await buildSwapTransaction({
         quote,
-        userPublicKey: publicKey.toBase58(),
+        userPublicKey: effectivePublicKey.toBase58(),
         priorityFeeLamports: params.priorityFeeLamports,
       });
 
@@ -244,7 +254,7 @@ export function useLiveExecution() {
 
       let signed: VersionedTransaction;
       try {
-        signed = await signTransaction(tx);
+        signed = await effectiveSignTransaction(tx);
       } catch (e) {
         throw new JupiterError(
           e instanceof Error ? e.message : "User rejected or wallet error",
@@ -290,12 +300,12 @@ export function useLiveExecution() {
         priceImpactPct: quote.priceImpactPct,
       };
     },
-    [connection, connected, publicKey, signTransaction],
+    [connection, effectivePublicKey, effectiveSignTransaction],
   );
 
   return {
     executeSwap,
     executeLiveSell,
-    walletReady: connected && !!publicKey && !!signTransaction,
+    walletReady: ready,
   };
 }
