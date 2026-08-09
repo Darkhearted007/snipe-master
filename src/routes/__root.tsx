@@ -29,11 +29,15 @@ import { SolanaProviders } from "@/lib/solana-provider";
 import { useServerPersistence } from "@/hooks/use-server-persistence";
 import { useCouncilMemory } from "@/hooks/use-council-memory";
 import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
+import { useSafetyResolver } from "@/hooks/use-safety-resolver";
 import { useBotStore } from "@/lib/bot-store";
 import { useWalletReady } from "@/lib/solana-provider";
 import { GlobalErrorBoundary } from "@/components/global-error-boundary";
 import { SchemaCheckBanner } from "@/components/schema-check-banner";
 import { LazyLiveExecutorMount } from "@/components/wallet-lazy";
+import { LazyAutoExecutorMount } from "@/components/wallet-lazy";
+import { LazyLivePriceFeedMount } from "@/components/wallet-lazy";
+import { LazyAutoExitExecutorMount } from "@/components/wallet-lazy";
 import { ServiceRoleWarning } from "@/components/service-role-warning";
 import { getSupabaseEnvStatus } from "@/lib/env-check";
 import { ConfigErrorScreen } from "@/components/config-error-screen";
@@ -181,6 +185,7 @@ function AppLayout({ children }: { children: ReactNode }) {
   useCouncilMemory();
   const mode = useBotStore((s) => s.mode);
   useDexScreenerStream(mode === "live");
+  useSafetyResolver(mode === "live");
   const walletReady = useWalletReady();
   return (
     <SidebarProvider>
@@ -192,6 +197,9 @@ function AppLayout({ children }: { children: ReactNode }) {
           <StatusStrip />
           <main className="flex-1 p-4">{children}</main>
           {walletReady && <LazyLiveExecutorMount />}
+          {walletReady && <LazyAutoExecutorMount />}
+          {walletReady && <LazyLivePriceFeedMount />}
+          {walletReady && <LazyAutoExitExecutorMount />}
         </div>
       </div>
     </SidebarProvider>

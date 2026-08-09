@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useBotStore } from "@/lib/bot-store";
 import { logStructured } from "@/lib/structured-logger";
 import { computeBackoff } from "@/lib/retry-backoff";
+import { estimateLiquiditySol, isBondingCurveTradeable } from "@/lib/liquidity-estimate";
 
 /**
  * DexScreener live feed.
@@ -29,14 +30,31 @@ type SearchResponse = {
     baseToken?: { symbol?: string; address?: string };
     quoteToken?: { symbol?: string };
     liquidity?: { usd?: number };
+    fdv?: number;
+    marketCap?: number;
     priceUsd?: string;
     pairCreatedAt?: number;
   }>;
 };
 
+/** Maps a DexScreener dexId to our internal venue taxonomy.
+ *
+ *  CRITICAL: "pumpfun" (bonding-curve) and "pumpswap" (graduated AMM) are
+ *  different venues. Bonding-curve tokens must use the pump.fun buy program
+ *  (Jupiter can't route them), while graduated tokens trade on pump.fun's AMM
+ *  and CAN be routed through Jupiter. Conflating them caused the auto-executor
+ *  to route AMM tokens through the bonding-curve path (which fails) or vice
+ *  versa.
+ *
+ *  - "pumpfun"  → "pumpfun"  (bonding curve, use /api/pumpfun/buy)
+ *  - "pumpswap" → "raydium"  (graduated AMM, use Jupiter)
+ *  - other      → "raydium"
+ */
 function mapVenue(dexId?: string): "raydium" | "pumpfun" | "bsc" {
   const d = (dexId ?? "").toLowerCase();
-  if (d.includes("pump")) return "pumpfun";
+  // Only the "pumpfun" dexId is the bonding curve. "pumpswap" is the
+  // graduated AMM — route it through Jupiter like any other AMM.
+  if (d === "pumpfun") return "pumpfun";
   if (d.includes("pancake") || d.includes("bsc")) return "bsc";
   return "raydium";
 }
@@ -51,21 +69,57 @@ async function fetchPairs(query: string, signal: AbortSignal): Promise<SearchRes
 }
 
 type SafetyVerdictResponse =
-  | { ok: true; score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }
+  | {
+      ok: true;
+      score: number | null;
+      verdict: "safe" | "caution" | "danger" | "unknown";
+      flags?: {
+        lpLocked: boolean | null;
+        lpLockedPct: number | null;
+        topHolderPct: number | null;
+        insiderPct: number | null;
+      };
+      onChain?: {
+        score: number;
+        mintAuthorityActive: boolean | null;
+        freezeAuthorityActive: boolean | null;
+        honeypotSellable: boolean | null;
+        lpStatus: string;
+        reasons: string[];
+      } | null;
+    }
   | { ok: false; error: string };
 
 /** Calls the existing /api/rugcheck/$mint route, which merges rugcheck.xyz's
  *  report with a real on-chain check (mint/freeze authority, LP lock/burn,
- *  honeypot probe) into one verdict. */
+ *  honeypot probe) into one verdict. Returns the full flags + on-chain data
+ *  so applySafetyVerdict can check requireLpLocked, blockHoneypots, and
+ *  maxHolderConcentrationPct against the user's SafetyFilters config. */
 async function fetchSafetyVerdict(
   mint: string,
   signal: AbortSignal,
-): Promise<{ score: number | null; verdict: "safe" | "caution" | "danger" | "unknown" }> {
+): Promise<{
+  score: number | null;
+  verdict: "safe" | "caution" | "danger" | "unknown";
+  flags?: {
+    lpLocked: boolean | null;
+    topHolderPct: number | null;
+    honeypotSellable: boolean | null;
+  };
+}> {
   const res = await fetch(`/api/rugcheck/${encodeURIComponent(mint)}`, { signal });
   if (!res.ok) throw new Error(`safety check ${res.status}`);
   const data = (await res.json()) as SafetyVerdictResponse;
   if (!data.ok) throw new Error(data.error);
-  return { score: data.score, verdict: data.verdict };
+  return {
+    score: data.score,
+    verdict: data.verdict,
+    flags: {
+      lpLocked: data.flags?.lpLocked ?? null,
+      topHolderPct: data.flags?.topHolderPct ?? null,
+      honeypotSellable: data.onChain?.honeypotSellable ?? null,
+    },
+  };
 }
 
 export function useDexScreenerStream(enabled: boolean) {
@@ -102,14 +156,34 @@ export function useDexScreenerStream(enabled: boolean) {
           );
           for (const p of pairs.slice(0, 4)) {
             const symbol = `${p.baseToken?.symbol ?? "?"}/${p.quoteToken?.symbol ?? "?"}`;
-            const liquidityUsd = p.liquidity?.usd ?? 0;
+            // pump.fun bonding-curve tokens report liquidity.usd = null
+            // (no LP pool — the curve IS the liquidity). Estimate from
+            // FDV/marketCap so they aren't rejected by the liquidity gate.
+            const venue = mapVenue(p.dexId);
+            const liquiditySol = estimateLiquiditySol({
+              liquidityUsd: p.liquidity?.usd,
+              fdv: p.fdv,
+              marketCap: p.marketCap,
+            });
+            // Skip tokens with no discoverable liquidity at all (dust/scam).
+            if (
+              !isBondingCurveTradeable({
+                liquidityUsd: p.liquidity?.usd,
+                fdv: p.fdv,
+                marketCap: p.marketCap,
+              })
+            ) {
+              continue;
+            }
             const mint = p.baseToken?.address;
+            const priceUsd = p.priceUsd ? parseFloat(p.priceUsd) : null;
             const oppId = pushRealOpportunity({
               token: p.baseToken?.symbol ?? "UNKNOWN",
-              venue: mapVenue(p.dexId),
+              venue,
               symbol,
-              liquiditySol: liquidityUsd / 150,
+              liquiditySol,
               tokenAddress: mint,
+              priceUsd,
             });
             if (oppId && mint) {
               // Fire-and-forget: the opportunity starts as safety=-1/"skip"
@@ -118,7 +192,12 @@ export function useDexScreenerStream(enabled: boolean) {
               // discovery of the next pair.
               fetchSafetyVerdict(mint, abort.signal)
                 .then((v) => {
-                  applySafetyVerdict({ opportunityId: oppId, score: v.score, verdict: v.verdict });
+                  applySafetyVerdict({
+                    opportunityId: oppId,
+                    score: v.score,
+                    verdict: v.verdict,
+                    flags: v.flags,
+                  });
                 })
                 .catch((e) => {
                   logStructured(e, {

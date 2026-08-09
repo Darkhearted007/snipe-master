@@ -77,7 +77,9 @@ type DiscoveryDiagnostics = {
 
 function mapDexVenue(dexId?: string): string {
   const d = (dexId ?? "").toLowerCase();
-  if (d.includes("pump")) return "solana/pump.fun";
+  // Only "pumpfun" is the bonding curve. "pumpswap" is the graduated AMM
+  // — route it as raydium so Jupiter handles it (not the bonding-curve path).
+  if (d === "pumpfun") return "solana/pump.fun";
   if (d.includes("pancake") || d.includes("bsc")) return "bsc";
   return "solana/raydium";
 }
@@ -100,6 +102,8 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
           baseToken?: { symbol?: string; address?: string };
           quoteToken?: { symbol?: string };
           liquidity?: { usd?: number };
+          fdv?: number;
+          marketCap?: number;
           pairCreatedAt?: number;
         }>;
       };
@@ -114,6 +118,12 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
       if (pair.chainId !== "solana" || !pair.baseToken?.address) continue;
       const mint = pair.baseToken.address;
       if (rows.has(mint)) continue;
+      // Pump.fun bonding-curve tokens report liquidity.usd = null on
+      // DexScreener. Estimate from FDV so the tick() liquidity gate
+      // doesn't reject them (see estimateLiquiditySol for the formula).
+      const liquidityUsd = pair.liquidity?.usd ?? null;
+      const effectiveLiquidityUsd =
+        liquidityUsd != null ? liquidityUsd : (pair.fdv ?? pair.marketCap ?? null);
       rows.set(mint, {
         mint,
         lp_mint: null,
@@ -124,7 +134,10 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
           ? new Date(pair.pairCreatedAt).toISOString()
           : new Date().toISOString(),
         safety_score: null,
-        liquidity_usd: pair.liquidity?.usd ?? null,
+        // Store the effective liquidity (real or FDV-estimated) so tick()'s
+        // `(c.liquidity_usd ?? 0) / 150` produces a non-zero value for
+        // bonding-curve tokens.
+        liquidity_usd: effectiveLiquidityUsd,
       });
       if (rows.size >= 50) break;
     }
@@ -132,6 +145,33 @@ async function fetchDexScreenerFallbackCandidates(): Promise<DiscoveryRow[]> {
   }
 
   return [...rows.values()];
+}
+
+/**
+ * Evaluates on-chain safety for DexScreener fallback candidates so they
+ * carry a real safety_score instead of null. Without this, every fallback
+ * candidate shows safety=-1 ("not yet scored") in the opportunity feed and
+ * is auto-SKIPped — the feed looks alive but the bot never acts.
+ *
+ * Caps evaluations per request to avoid latency spikes (each check does
+ * RPC + Jupiter quote round-trips). Candidates that fail evaluation keep
+ * safety_score=null, which tick() maps to -1 (treated as unsafe).
+ */
+async function scoreFallbackCandidates(candidates: DiscoveryRow[]): Promise<DiscoveryRow[]> {
+  const toEvaluate = candidates.slice(0, MAX_EVALUATIONS_PER_REQUEST);
+  const scored = await Promise.allSettled(
+    toEvaluate.map(async (row) => {
+      const result = await evaluateMintSafety(row.mint, row.lp_mint);
+      return { ...row, safety_score: result.score };
+    }),
+  );
+  const scoreMap = new Map<string, number>();
+  scored.forEach((r, i) => {
+    if (r.status === "fulfilled") scoreMap.set(toEvaluate[i].mint, r.value.safety_score);
+  });
+  return candidates.map((c) =>
+    scoreMap.has(c.mint) ? { ...c, safety_score: scoreMap.get(c.mint)! } : c,
+  );
 }
 
 function structuredDiscoveryError(
@@ -168,9 +208,10 @@ export const Route = createFileRoute("/api/discovery")({
             structuredDiscoveryError("supabase", error),
           );
           const candidates = await fetchDexScreenerFallbackCandidates();
+          const scored = await scoreFallbackCandidates(candidates);
           return new Response(
             JSON.stringify({
-              candidates,
+              candidates: scored,
               source: "dexscreener-fallback",
               diagnostics: [structuredDiscoveryError("supabase", error)],
             }),
@@ -284,9 +325,10 @@ export const Route = createFileRoute("/api/discovery")({
           // DexScreener so discovery is never reported as offline/empty.
           if (!data || data.length === 0) {
             const candidates = await fetchDexScreenerFallbackCandidates();
+            const scored = await scoreFallbackCandidates(candidates);
             return new Response(
               JSON.stringify({
-                candidates,
+                candidates: scored,
                 source: "dexscreener-fallback",
                 diagnostics: [
                   {
@@ -317,9 +359,10 @@ export const Route = createFileRoute("/api/discovery")({
             diagnostics,
           );
           const candidates = await fetchDexScreenerFallbackCandidates();
+          const scored = await scoreFallbackCandidates(candidates);
           return new Response(
             JSON.stringify({
-              candidates,
+              candidates: scored,
               source: "dexscreener-fallback",
               diagnostics: [diagnostics],
             }),

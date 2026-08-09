@@ -53,11 +53,16 @@ export class JupiterError extends Error {
 export async function getQuote(params: {
   inputMint: string;
   outputMint: string;
-  amountLamports: number;
+  /** Integer amount in the input token's smallest unit (lamports for SOL).
+   *  Accepts string for token sells where raw amounts can exceed JS
+   *  safe-integer range. */
+  amountLamports: number | string;
   slippageBps: number;
 }): Promise<JupiterQuote> {
   const { inputMint, outputMint, amountLamports, slippageBps } = params;
-  if (!Number.isFinite(amountLamports) || amountLamports <= 0) {
+  const amountStr =
+    typeof amountLamports === "string" ? amountLamports : String(Math.floor(amountLamports));
+  if (!/^\d+$/.test(amountStr) || BigInt(amountStr) <= 0n) {
     throw new JupiterError("Invalid trade amount", "quote");
   }
   // JUP_QUOTE_URL is a same-origin relative path (our proxy) — new URL()
@@ -65,7 +70,7 @@ export async function getQuote(params: {
   const url = new URL(JUP_QUOTE_URL, window.location.origin);
   url.searchParams.set("inputMint", inputMint);
   url.searchParams.set("outputMint", outputMint);
-  url.searchParams.set("amount", String(Math.floor(amountLamports)));
+  url.searchParams.set("amount", amountStr);
   url.searchParams.set("slippageBps", String(slippageBps));
   // restrictIntermediateTokens reduces exposure to illiquid multi-hop routes.
   url.searchParams.set("restrictIntermediateTokens", "true");

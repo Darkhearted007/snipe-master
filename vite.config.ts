@@ -8,8 +8,12 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import path from "node:path";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
-const FALLBACK_BACKEND_URL = "https://wqpykfbacsczqvvigaqr.supabase.co";
-const FALLBACK_BACKEND_PUBLISHABLE_KEY = "sb_publishable_9CcocmqcwnlO84vCVvrSKg_g2RrxgGG";
+import {
+  FALLBACK_SUPABASE_URL,
+  FALLBACK_SUPABASE_PUBLISHABLE_KEY,
+} from "./src/lib/supabase-fallback";
+const FALLBACK_BACKEND_URL = FALLBACK_SUPABASE_URL;
+const FALLBACK_BACKEND_PUBLISHABLE_KEY = FALLBACK_SUPABASE_PUBLISHABLE_KEY;
 
 const clientBackendUrl =
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || FALLBACK_BACKEND_URL;

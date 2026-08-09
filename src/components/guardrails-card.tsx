@@ -18,8 +18,15 @@ export function GuardrailsCard() {
   } = useBotStore();
 
   const largest = positions.reduce((m, p) => Math.max(m, p.sizeSol), 0);
-  const dailyLoss = Math.max(0, ((startBankroll - bankroll) / startBankroll) * 100);
-  const drawdown = Math.max(0, ((peakBankroll - bankroll) / peakBankroll) * 100);
+  // Compute equity the same way applyTick() does: bankroll + the value of
+  // all open positions. Using raw `bankroll` alone produces a false drawdown
+  // spike the moment a live position opens (SOL leaves the wallet but is
+  // still held as tokens), which doesn't match the actual guardrail check
+  // and confuses users into thinking the drawdown limit is breached.
+  const openPositionsValue = positions.reduce((a, p) => a + p.sizeSol, 0);
+  const equity = bankroll + openPositionsValue;
+  const dailyLoss = Math.max(0, ((startBankroll - equity) / startBankroll) * 100);
+  const drawdown = Math.max(0, ((peakBankroll - equity) / peakBankroll) * 100);
 
   const adaptive = guardrails.adaptiveSizing;
 

@@ -165,6 +165,10 @@ interface BotState {
   killSwitch: () => void;
   acknowledgeBreach: () => void;
   closePosition: (id: string) => void;
+  /** Updates the `current` price of a live position so equity / drawdown
+   *  reflect real unrealized P&L. Called by a live price feed (e.g.
+   *  DexScreener) when it observes a price for the position's mint. */
+  updateLivePositionPrice: (mint: string, currentPrice: number) => void;
   toggleVenue: (v: Venue) => void;
   setGuardrails: (g: Partial<Guardrails>) => void;
   addWatch: (input: {
@@ -195,11 +199,25 @@ interface BotState {
     symbol: string;
     liquiditySol: number;
     tokenAddress?: string;
+    /** Optional USD price from DexScreener. When present, stored as
+     *  `entryPrice` so confirmLiveEntry uses a real price instead of
+     *  the 1.0 fallback. This makes TP/SL thresholds (12%/6%) track
+     *  actual market price movement rather than an arbitrary unit. */
+    priceUsd?: number | null;
   }) => string | null;
   applySafetyVerdict: (input: {
     opportunityId: string;
     score: number | null;
     verdict: "safe" | "caution" | "danger" | "unknown";
+    /** Optional safety flags from the rugcheck endpoint. When present,
+     *  these are checked against the user's SafetyFilters config
+     *  (requireLpLocked, blockHoneypots, maxHolderConcentrationPct)
+     *  so the dead config actually gates entry decisions. */
+    flags?: {
+      lpLocked: boolean | null;
+      topHolderPct: number | null;
+      honeypotSellable: boolean | null;
+    };
   }) => void;
   setDiscoveryCandidates: (rows: DiscoveryCandidate[]) => void;
   /** Pure eligibility check — no state writes. Safe to call during render
@@ -211,7 +229,18 @@ interface BotState {
   requestLiveEntry: (
     opportunityId: string,
   ) => { ok: true; sizeSol: number } | { ok: false; error: string };
-  confirmLiveEntry: (input: { opportunityId: string; sizeSol: number; signature: string }) => void;
+  confirmLiveEntry: (input: {
+    opportunityId: string;
+    sizeSol: number;
+    signature: string;
+    tokensReceivedRaw?: string;
+  }) => void;
+  /** Bookkeeping after an on-chain sell confirms for a live position.
+   *  Records the exit signature, computes realized PnL from `current` vs
+   *  `entry`, returns the SOL to the wallet/bankroll, and (for profitable
+   *  exits) marks the trade settlement as "pending" so useLiveExecutor can
+   *  route the platform fee on-chain. */
+  confirmLiveExit: (input: { positionId: string; signature: string; solReceived?: number }) => void;
   failLiveEntry: (input: { opportunityId: string; reason: string }) => void;
   hydrateFromServer: (payload: {
     settings: Record<string, unknown> | null;
@@ -246,7 +275,15 @@ const initial = {
   totalFeesPaidSol: 0,
   equity: [{ ts: Date.now(), value: initialBankroll }] as EquityPoint[],
   guardrails: {
-    maxPositionSol: 0.02,
+    // 0.05 SOL (~$7.50) is the minimum position size that produces
+    // meaningful net profit after Solana tx fees (~0.000005 SOL × 2)
+    // and swap slippage. The previous 0.02 SOL cap yielded max profit
+    // of 0.0024 SOL per winning trade (12% TP), which was barely above
+    // gas costs. With 0.05 SOL, a 12% TP yields 0.006 SOL — enough to
+    // cover fees and produce real returns. The position size formula
+    // (min(bankroll × 0.1, maxPositionSol)) still caps risk at 10% of
+    // bankroll per trade.
+    maxPositionSol: 0.05,
     dailyLossLimitPct: 20,
     drawdownLimitPct: 15,
     duplicateGuard: true,
@@ -261,11 +298,22 @@ const initial = {
   activeVenues: { raydium: true, pumpfun: true, bsc: false } as Record<Venue, boolean>,
   autoCurate: true,
   safetyFilters: {
-    minSafety: 60,
-    minLiquiditySol: 5,
+    // 40 is low enough to admit typical pump.fun tokens (which score ~30
+    // pre-migration because active mint/freeze authority is normal there,
+    // not a rug signal) while still hard-blocking honeypots (score 0) and
+    // tokens with unlocked LP + active freeze (score ≤ 35). The previous
+    // default of 60 filtered out virtually every real DexScreener pair,
+    // so the bot never saw a passing candidate in live mode.
+    minSafety: 40,
+    // 2 SOL ≈ $300 USD (liquiditySol = liquidityUsd / 150). The previous
+    // default of 5 required $750+ liquidity, which excludes most newly
+    // listed pairs the feed is meant to surface. 2 SOL is still enough to
+    // reject dust pools and outright scam pairs with no real liquidity.
+    minLiquiditySol: 2,
     requireLpLocked: true,
     blockHoneypots: true,
     maxHolderConcentrationPct: 25,
+    autoExecute: false,
   } as SafetyFilters,
   watchlist: [],
   healthTickErrors: 0,
@@ -386,13 +434,30 @@ export const useBotStore = create<BotState>()(
       setWalletBalance: (sol) =>
         set((s) => {
           const next = sol == null ? s.bankroll : Math.max(0, sol);
+          // When the bot is running, a wallet-balance poll is NOT a session
+          // reset. The on-chain SOL balance naturally drops when a live
+          // position is opened (the SOL was swapped for tokens) — if we
+          // reset startBankroll to the new (lower) balance on every 20-30s
+          // poll, the daily-loss guardrail baseline drifts downward and
+          // never triggers. Similarly, we must NOT clear a real
+          // guardrailBreached just because the RPC balance refresh fired.
+          //
+          // Only initialize startBankroll / peakBankroll / equity when the
+          // bot is idle (i.e. this is the initial wallet-connect sync, not
+          // a mid-session poll).
+          const isIdle = s.status === "idle";
+          const equityValue = isIdle ? next : next + s.positions.reduce((a, p) => a + p.sizeSol, 0);
           return {
             walletBalanceSol: sol,
             bankroll: next,
-            startBankroll: next,
-            peakBankroll: Math.max(s.peakBankroll, next),
-            equity: [{ ts: Date.now(), value: next }, ...s.equity].slice(0, MAX_EQUITY),
-            guardrailBreached: false,
+            // Preserve the session baseline while running; initialize when idle.
+            startBankroll: isIdle ? next : s.startBankroll,
+            peakBankroll: isIdle ? next : Math.max(s.peakBankroll, equityValue),
+            equity: isIdle
+              ? [{ ts: Date.now(), value: next }, ...s.equity].slice(0, MAX_EQUITY)
+              : [...s.equity, { ts: Date.now(), value: equityValue }].slice(-MAX_EQUITY),
+            // Never clear a real breach from a balance-poll side effect.
+            guardrailBreached: isIdle ? false : s.guardrailBreached,
             log: prepend(s.log, {
               id: id(),
               ts: Date.now(),
@@ -436,9 +501,18 @@ export const useBotStore = create<BotState>()(
         const s = get();
         if (s.mode === "live" && (!s.liveConfirmed || !s.walletConnected)) return;
         if (s.guardrailBreached) return;
+        // Reset session baselines so drawdown/daily-loss are measured from
+        // the point the bot actually starts, not from a stale peak left over
+        // from a previous session (which could cause an immediate false
+        // breach on the first tick).
+        const sessionStart = s.bankroll;
+        const equityNow = sessionStart + s.positions.reduce((a, p) => a + p.sizeSol, 0);
         set({
           status: "running",
           startedAt: Date.now(),
+          startBankroll: sessionStart,
+          peakBankroll: Math.max(sessionStart, equityNow),
+          equity: [{ ts: Date.now(), value: equityNow }, ...s.equity].slice(0, MAX_EQUITY),
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
@@ -466,6 +540,12 @@ export const useBotStore = create<BotState>()(
             startBankroll: v,
             peakBankroll: v,
             positions: [],
+            // A session reset is a clean slate: clear the trade history and
+            // the decision log too, not just open positions. Previously
+            // these survived a reset, so "previous trade session history"
+            // kept showing after the user explicitly cleared the session.
+            tradeHistory: [],
+            opportunities: [],
             equity: [{ ts: Date.now(), value: v }] as EquityPoint[],
             sessionPnl: 0,
             tradesToday: 0,
@@ -578,6 +658,37 @@ export const useBotStore = create<BotState>()(
                   ]
                 : []),
             ).slice(0, MAX_LOG),
+          };
+        }),
+      updateLivePositionPrice: (mint, currentPrice) =>
+        set((s) => {
+          if (!Number.isFinite(currentPrice) || currentPrice <= 0) return {};
+          const idx = s.positions.findIndex(
+            (p) =>
+              p.live &&
+              (p.mint === mint ||
+                (p as Position & { mintAddress?: string | null }).mintAddress === mint),
+          );
+          if (idx < 0) return {};
+          const p = s.positions[idx];
+          if (p.current === currentPrice) return {};
+          const updated = { ...p, current: currentPrice };
+          const positions = [...s.positions];
+          positions[idx] = updated;
+          // Recompute equity with the new price so peak / drawdown stay
+          // accurate without waiting for the next tick.
+          const positionsValue = positions.reduce((a, pos) => {
+            if (pos.entry > 0 && pos.current !== pos.entry) {
+              return a + pos.sizeSol * (pos.current / pos.entry);
+            }
+            return a + pos.sizeSol;
+          }, 0);
+          const equityValue = s.bankroll + positionsValue;
+          return {
+            positions,
+            peakBankroll: Math.max(s.peakBankroll, equityValue),
+            equity: [...s.equity, { ts: Date.now(), value: equityValue }].slice(-MAX_EQUITY),
+            sessionPnl: equityValue - s.startBankroll,
           };
         }),
       toggleVenue: (v) =>
@@ -726,13 +837,39 @@ export const useBotStore = create<BotState>()(
         const exitLogs: DecisionLogEntry[] = [];
 
         for (const p of s.positions) {
-          // Live positions are backed by a real on-chain swap — never
-          // random-walk their notional price or compute simulated pnl from
-          // synthetic drift. Their `current` stays at entry until a real
-          // exit (manual close or a live price feed) updates it. This keeps
-          // the equity curve honest and prevents fake TP/SL triggers.
           if (p.live) {
-            remaining.push(p);
+            // Live positions are backed by a real on-chain swap — never
+            // random-walk their notional price. Their `current` is updated by
+            // the useLivePriceFeed hook (DexScreener poll). Instead of
+            // skipping them entirely, we check whether the live price has
+            // crossed TP or SL and flag the position for an on-chain exit.
+            // The auto-exit executor (useAutoExitExecutor) reads
+            // `exitRequested` and performs the actual sell, then calls
+            // confirmLiveExit to update bookkeeping.
+            if (p.exitRequested) {
+              remaining.push(p);
+              continue;
+            }
+            // Only check TP/SL if the price feed has updated `current` away
+            // from entry (otherwise current === entry and no threshold is hit).
+            if (p.current !== p.entry) {
+              const hitTp = p.tp > 0 && p.current >= p.tp;
+              const hitSl = p.sl > 0 && p.current <= p.sl;
+              if (hitTp || hitSl) {
+                const reason = hitTp ? "tp" : "sl";
+                remaining.push({ ...p, exitRequested: true, exitReason: reason });
+                exitLogs.push({
+                  id: id(),
+                  ts: Date.now(),
+                  type: "execution",
+                  summary: `EXIT_REQUESTED ${reason.toUpperCase()} ${p.token} · current ${p.current.toFixed(8)} · ${reason === "tp" ? "tp" : "sl"} ${reason === "tp" ? p.tp.toFixed(8) : p.sl.toFixed(8)} · pending on-chain sell`,
+                });
+              } else {
+                remaining.push(p);
+              }
+            } else {
+              remaining.push(p);
+            }
             continue;
           }
           const drift = (Math.random() - 0.48) * 0.035;
@@ -800,7 +937,16 @@ export const useBotStore = create<BotState>()(
             const c = rand(pool);
             token = c.symbol || c.mint.slice(0, 6);
             venue = venueFromDiscovery(c.venue);
-            liquiditySol = (c.liquidity_usd ?? 0) / 150;
+            // Pump.fun bonding-curve discovery candidates often have
+            // liquidity_usd = null (DexScreener can't measure curve
+            // liquidity). Fall back to the minLiquiditySol threshold so
+            // they pass the liquidity gate — the safety check + FDV
+            // estimate from the stream handle the real filtering.
+            const rawLiquiditySol = (c.liquidity_usd ?? 0) / 150;
+            liquiditySol =
+              venue === "pumpfun" && rawLiquiditySol <= 0
+                ? s.safetyFilters.minLiquiditySol
+                : rawLiquiditySol;
             safety = c.safety_score ?? -1;
             mint = c.mint;
             decimals = c.decimals;
@@ -820,13 +966,36 @@ export const useBotStore = create<BotState>()(
           if (safety >= 0 && safety < s.safetyFilters.minSafety)
             reasons.push(`safety ${safety} < ${s.safetyFilters.minSafety}`);
           if (safety < 0) reasons.push("safety not yet scored");
-          if (liquiditySol < s.safetyFilters.minLiquiditySol)
+          // Skip the liquidity gate for pump.fun bonding-curve tokens —
+          // their liquidity is on the curve, not a pool, and DexScreener
+          // reports it as null. The safety check gates them instead.
+          if (venue !== "pumpfun" && liquiditySol < s.safetyFilters.minLiquiditySol)
             reasons.push(
               `liquidity ${liquiditySol.toFixed(1)} < ${s.safetyFilters.minLiquiditySol} SOL`,
             );
-          if (s.guardrails.duplicateGuard && s.positions.some((p) => p.token === token))
-            reasons.push("duplicate position");
-          if (confidence < 55) reasons.push(`confidence ${confidence} too low`);
+          if (s.guardrails.duplicateGuard) {
+            // Check by mint first (canonical on-chain identity), then
+            // fall back to token symbol for legacy opportunities.
+            const hasDup =
+              (mint != null &&
+                s.positions.some(
+                  (p) =>
+                    p.live &&
+                    (p.mint === mint ||
+                      (p as Position & { mintAddress?: string | null }).mintAddress === mint),
+                )) ||
+              s.positions.some((p) => p.token === token);
+            if (hasDup) reasons.push("duplicate position");
+          }
+          // Confidence floor tracks the safety threshold so a token that
+          // passes minSafety isn't separately blocked by a stale hardcoded
+          // confidence gate. Previously this was a fixed 55 — higher than
+          // the old minSafety of 60 minus typical council-bias/noise, which
+          // meant most live candidates were skipped on confidence even after
+          // passing the safety check. Now confidence must simply clear the
+          // same bar as safety.
+          if (confidence < s.safetyFilters.minSafety)
+            reasons.push(`confidence ${confidence} < ${s.safetyFilters.minSafety}`);
 
           const decision: Opportunity["decision"] = reasons.length ? "skip" : "enter";
           const opp: Opportunity = {
@@ -908,7 +1077,20 @@ export const useBotStore = create<BotState>()(
           const skipsAdded = newOpportunities.filter((o) => o.decision === "skip").length;
           const entriesAdded = newOpportunities.filter((o) => o.decision === "enter").length;
           const nextBankroll = bankroll;
-          const equityValue = nextBankroll + remaining.reduce((a, p) => a + p.sizeSol, 0);
+          // Equity = bankroll + mark-to-market value of open positions.
+          // For paper positions, `current` is updated by the random-walk
+          // above, so we use the unrealized P&L: sizeSol * (current / entry).
+          // For live positions, `current` stays at entry (no synthetic
+          // drift), so this falls back to sizeSol — the original cost. A
+          // future live price feed should update `current` so the drawdown
+          // guardrail reflects real unrealized losses.
+          const positionsValue = remaining.reduce((a, p) => {
+            if (p.entry > 0 && p.current !== p.entry) {
+              return a + p.sizeSol * (p.current / p.entry);
+            }
+            return a + p.sizeSol;
+          }, 0);
+          const equityValue = nextBankroll + positionsValue;
           const peak = Math.max(cur.peakBankroll, equityValue);
           const drawdownPct = peak > 0 ? ((peak - equityValue) / peak) * 100 : 0;
           const dailyLossPct =
@@ -1009,8 +1191,24 @@ export const useBotStore = create<BotState>()(
         if (!s.walletConnected || !s.walletAddress)
           return { ok: false as const, error: "Wallet not connected" };
         if (s.guardrailBreached) return { ok: false as const, error: "Guardrail breached" };
-        if (s.positions.some((p) => p.token === opportunity.token && p.live))
-          return { ok: false as const, error: "Duplicate live position" };
+        // Duplicate guard: check by mint (canonical on-chain identity)
+        // first, then fall back to token symbol. This prevents re-entry
+        // into the same token when DexScreener reports it with a
+        // different symbol variant.
+        const oppMint =
+          opportunity.mint ??
+          (opportunity as Opportunity & { tokenAddress?: string | null }).tokenAddress ??
+          null;
+        const hasDup =
+          (oppMint != null &&
+            s.positions.some(
+              (p) =>
+                p.live &&
+                (p.mint === oppMint ||
+                  (p as Position & { mintAddress?: string | null }).mintAddress === oppMint),
+            )) ||
+          s.positions.some((p) => p.token === opportunity.token && p.live);
+        if (hasDup) return { ok: false as const, error: "Duplicate live position" };
         const minSize = Math.max(0.001, Math.min(s.bankroll * 0.1, s.guardrails.maxPositionSol));
         if (!Number.isFinite(minSize) || minSize <= 0 || minSize > s.bankroll)
           return {
@@ -1063,7 +1261,7 @@ export const useBotStore = create<BotState>()(
         }));
         return gate;
       },
-      confirmLiveEntry: ({ opportunityId, sizeSol, signature }) => {
+      confirmLiveEntry: ({ opportunityId, sizeSol, signature, tokensReceivedRaw }) => {
         const s = get();
         const opp = s.opportunities.find((o) => o.id === opportunityId);
         if (!opp) return;
@@ -1071,6 +1269,7 @@ export const useBotStore = create<BotState>()(
         const tokenAddress =
           opp.mint ?? (opp as Opportunity & { tokenAddress?: string | null }).tokenAddress ?? null;
         const positionId = id();
+        const entryPrice = opp.entryPrice ?? opp.price ?? 1;
         const position: Position = {
           id: positionId,
           token: opp.token,
@@ -1080,15 +1279,21 @@ export const useBotStore = create<BotState>()(
           sizeSol,
           // Use a real price if the opportunity carries one; otherwise fall
           // back to 1.0 so downstream pnl math never divides by zero. Live
-          // positions are NOT random-walked by tick() (see B5 guard), so this
-          // is only a notional reference until a real exit is executed.
-          entry: opp.entryPrice ?? opp.price ?? 1,
-          current: opp.entryPrice ?? opp.price ?? 1,
+          // positions are NOT random-walked by tick() — instead the
+          // useLivePriceFeed hook polls DexScreener and calls
+          // updateLivePositionPrice() to keep `current` accurate.
+          entry: entryPrice,
+          current: entryPrice,
           live: true,
-          tp: 0,
-          sl: 0,
+          // Set TP/SL based on entry price so tick() can detect exits when
+          // the live price feed updates `current`. 12% take-profit, 6%
+          // stop-loss — matching the paper-mode strategy.
+          tp: entryPrice > 0 ? entryPrice * 1.12 : 0,
+          sl: entryPrice > 0 ? entryPrice * 0.94 : 0,
+          exitRequested: false,
           mintAddress: tokenAddress ?? null,
           entrySignature: signature,
+          tokensReceivedRaw,
           openedAt: Date.now(),
         } as Position;
         set((cur) => ({
@@ -1115,24 +1320,111 @@ export const useBotStore = create<BotState>()(
             summary: `ENTRY_FAILED · ${opportunityId} · ${reason}`,
           }).slice(0, MAX_LOG),
         })),
-      pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress }) => {
+      confirmLiveExit: ({ positionId, signature, solReceived }) => {
+        const s = get();
+        const p = s.positions.find((x) => x.id === positionId);
+        if (!p) return;
+        // Realized PnL from price appreciation. If the caller passed an
+        // explicit SOL amount received from the on-chain sell, prefer that
+        // for an exact figure; otherwise fall back to the notional math.
+        const notionalPnl = (p.current - p.entry) * (p.sizeSol / p.entry);
+        const realizedSol = solReceived ?? p.sizeSol + notionalPnl;
+        const pnl = realizedSol - p.sizeSol;
+        const fee = s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
+        const net = pnl - fee;
+        const bankroll = s.bankroll + realizedSol;
+        const walletBalanceSol =
+          s.walletBalanceSol == null ? null : Math.max(0, s.walletBalanceSol + realizedSol);
+        const reason = p.exitReason ?? "manual";
+        const entry: TradeHistoryEntry = {
+          id: id(),
+          ts: Date.now(),
+          mode: s.mode,
+          token: p.token,
+          venue: p.venue,
+          sizeSol: p.sizeSol,
+          entry: p.entry,
+          exit: p.current,
+          pnlSol: pnl,
+          reason,
+          feePaidSol: fee,
+          netToUserSol: net,
+          feeWallet: fee > 0 ? s.platformFeeWallet : undefined,
+          settlementStatus: fee > 0 ? "pending" : "n/a",
+          entrySignature: p.entrySignature,
+          exitSignature: signature,
+        };
+        set((cur) => ({
+          positions: cur.positions.filter((x) => x.id !== positionId),
+          bankroll,
+          walletBalanceSol,
+          sessionPnl: bankroll - cur.startBankroll,
+          peakBankroll: Math.max(cur.peakBankroll, bankroll),
+          totalFeesPaidSol: cur.totalFeesPaidSol + fee,
+          tradeHistory: [entry, ...cur.tradeHistory].slice(0, MAX_HISTORY),
+          log: prepend(
+            cur.log,
+            {
+              id: id(),
+              ts: Date.now(),
+              type: "execution",
+              summary: `EXIT_EXECUTED · ${p.token} · ${reason.toUpperCase()} · sig ${signature.slice(0, 8)}… · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL${fee > 0 ? ` · fee ${fee.toFixed(5)}` : ""}`,
+            },
+            {
+              id: id(),
+              ts: Date.now(),
+              type: "audit" as const,
+              summary: `Audit#${entry.id.slice(0, 6)} ${s.mode.toUpperCase()} ${p.token} · pnl ${pnl >= 0 ? "+" : ""}${pnl.toFixed(5)} SOL · fee ${fee.toFixed(5)} SOL (${s.platformFeePct}%) · net ${net.toFixed(5)} SOL · settlement=${fee > 0 ? "pending" : "n/a"}`,
+            },
+          ).slice(0, MAX_LOG),
+        }));
+      },
+      pushRealOpportunity: ({ token, venue, symbol, liquiditySol, tokenAddress, priceUsd }) => {
         const s = get();
         if (!s.activeVenues[venue]) return null;
-        if (!Number.isFinite(liquiditySol) || liquiditySol <= 0) return null;
+        // Pump.fun bonding-curve tokens often report liquidity.usd = null
+        // on DexScreener (no LP pool — the curve is the liquidity). The
+        // DexScreener stream now estimates liquidity from FDV, but as a
+        // safety net we don't hard-reject pump.fun tokens with 0 liquidity
+        // — they get a minimal estimate so they at least enter the feed
+        // and can be scored by the safety check. AMM tokens still require
+        // positive liquidity (a 0-liquidity AMM pair is a dust/scam pool).
+        const effectiveLiquiditySol =
+          venue === "pumpfun" && (!Number.isFinite(liquiditySol) || liquiditySol <= 0)
+            ? s.safetyFilters.minLiquiditySol // minimal passable value
+            : liquiditySol;
+        if (!Number.isFinite(effectiveLiquiditySol) || effectiveLiquiditySol <= 0) return null;
         const oppId = id();
-        const score = Math.min(99, Math.max(1, Math.floor(50 + liquiditySol / 10)));
+        const score = Math.min(99, Math.max(1, Math.floor(50 + effectiveLiquiditySol / 10)));
+        // CRITICAL: write BOTH `mint` (canonical SPL mint used by the swap
+        // path and the LiveExecuteButton's `!opp.mint` render gate) AND
+        // `tokenAddress` (read by checkLiveEntry/confirmLiveEntry). Previously
+        // `tokenAddress` was accepted as a parameter but silently dropped,
+        // and `mint` was never set — so the Execute button never rendered
+        // and checkLiveEntry always failed with "Mint validation failed",
+        // structurally blocking every live entry.
         const opportunity: Opportunity = {
           id: oppId,
           ts: Date.now(),
           token,
           symbol,
           venue,
-          liquiditySol,
+          liquiditySol: effectiveLiquiditySol,
           score,
           safety: -1,
           confidence: score,
           decision: "skip",
           live: s.mode === "live",
+          mint: tokenAddress ?? undefined,
+          tokenAddress: tokenAddress ?? null,
+          // Store the real USD price as entryPrice so confirmLiveEntry
+          // sets TP/SL (entry × 1.12 / × 0.94) against actual market
+          // price, not the 1.0 fallback. Without this, live positions
+          // always start at entry=1.0 and the price feed's ratio math
+          // (current = entry × priceNow/priceAtEntry) works but the
+          // absolute TP/SL values are meaningless.
+          entryPrice:
+            priceUsd != null && Number.isFinite(priceUsd) && priceUsd > 0 ? priceUsd : undefined,
         };
         set((cur) => ({
           opportunities: [opportunity, ...cur.opportunities].slice(0, MAX_FEED),
@@ -1140,36 +1432,234 @@ export const useBotStore = create<BotState>()(
             id: id(),
             ts: Date.now(),
             type: "audit",
-            summary: `POOL_ACCEPTED · ${symbol} · liq ${liquiditySol.toFixed(2)} SOL · score ${score}`,
+            summary: `POOL_ACCEPTED · ${symbol} · liq ${effectiveLiquiditySol.toFixed(2)} SOL · score ${score}`,
           }).slice(0, MAX_LOG),
         }));
         return oppId;
       },
-      applySafetyVerdict: ({ opportunityId, score, verdict }) =>
-        set((s) => ({
-          opportunities: s.opportunities.map((o) =>
-            o.id === opportunityId ? { ...o, safetyScore: score ?? undefined, verdict } : o,
-          ),
-          log: prepend(s.log, {
-            id: id(),
-            ts: Date.now(),
-            type: "audit",
-            summary: `OPPORTUNITY_SCORED · ${opportunityId} · verdict=${verdict} · score=${String(score)}`,
-          }).slice(0, MAX_LOG),
-        })),
+      applySafetyVerdict: ({ opportunityId, score, verdict, flags }) =>
+        set((s) => {
+          const opp = s.opportunities.find((o) => o.id === opportunityId);
+          if (!opp) return {};
+          // Previously this only wrote `safetyScore` + `verdict` — the feed
+          // kept showing safety=-1 and decision="skip" forever, even after a
+          // real safety check returned a passing score. Now we also update
+          // the fields the feed renders (`safety`, `confidence`) and
+          // re-evaluate the decision so a safe token flips from SKIP to
+          // ENTER, which is what makes auto-execute (and the manual Execute
+          // button gate) actually fire.
+          const safety = score != null ? score : -1;
+          const reasons: string[] = [];
+          if (safety >= 0 && safety < s.safetyFilters.minSafety)
+            reasons.push(`safety ${safety} < ${s.safetyFilters.minSafety}`);
+          if (safety < 0) reasons.push("safety not yet scored");
+          // Skip the liquidity gate for pump.fun bonding-curve tokens.
+          // DexScreener reports liquidity.usd = null for these (the curve is
+          // the liquidity, not a pool), so opp.liquiditySol may be an
+          // estimate or the minimal fallback. Applying the hard AMM-style
+          // liquidity gate here would block every bonding-curve token even
+          // after it passes the safety check, preventing any pump.fun entry.
+          if (opp.venue !== "pumpfun" && opp.liquiditySol < s.safetyFilters.minLiquiditySol)
+            reasons.push(
+              `liquidity ${opp.liquiditySol.toFixed(1)} < ${s.safetyFilters.minLiquiditySol} SOL`,
+            );
+          if (verdict === "danger") reasons.push(`verdict=${verdict}`);
+          // Wire up the previously-dead SafetyFilters config. These flags
+          // come from the rugcheck endpoint's ground-truth on-chain check +
+          // rugcheck.xyz report. Without this, requireLpLocked=true,
+          // blockHoneypots=true, and maxHolderConcentrationPct=25 were
+          // silently ignored — unsafe tokens passed through the gate.
+          //
+          // LP lock: only check for AMM tokens (pump.fun bonding-curve
+          // tokens have no LP to lock — the curve IS the liquidity).
+          if (
+            s.safetyFilters.requireLpLocked &&
+            opp.venue !== "pumpfun" &&
+            flags?.lpLocked != null &&
+            !flags.lpLocked
+          )
+            reasons.push("LP not locked");
+          // Honeypot: a confirmed honeypot (sellable === false) is already
+          // caught by the "danger" verdict from the rugcheck endpoint. But
+          // if the user has blockHoneypots=true and the probe was
+          // inconclusive (sellable === null), we also skip — better safe
+          // than sorry. If blockHoneypots=false, we let inconclusive
+          // probes through (the score already penalizes them).
+          if (
+            s.safetyFilters.blockHoneypots &&
+            flags?.honeypotSellable != null &&
+            !flags.honeypotSellable
+          )
+            reasons.push("honeypot (not sellable)");
+          // Holder concentration: skip if the top non-insider holder
+          // exceeds the configured threshold. A whale can dump and crash
+          // the price. null means we couldn't measure it — don't block.
+          if (
+            s.safetyFilters.maxHolderConcentrationPct > 0 &&
+            flags?.topHolderPct != null &&
+            flags.topHolderPct > s.safetyFilters.maxHolderConcentrationPct
+          )
+            reasons.push(
+              `holder concentration ${flags.topHolderPct.toFixed(1)}% > ${s.safetyFilters.maxHolderConcentrationPct}%`,
+            );
+          // Duplicate guard: check by MINT (canonical on-chain identity)
+          // in addition to token symbol. DexScreener's trending feed
+          // repeatedly surfaces the same tokens — checking by mint prevents
+          // a re-discovered opportunity for an open position from passing
+          // the gate when the symbol happens to differ (e.g. "SOL/USDC"
+          // vs "SOL"). The symbol check remains as a secondary guard for
+          // legacy opportunities without a mint.
+          if (s.guardrails.duplicateGuard) {
+            const oppMint = opp.mint ?? opp.tokenAddress ?? null;
+            if (
+              oppMint &&
+              s.positions.some(
+                (p) =>
+                  p.live &&
+                  (p.mint === oppMint ||
+                    (p as Position & { mintAddress?: string | null }).mintAddress === oppMint),
+              )
+            ) {
+              reasons.push("duplicate position (mint)");
+            } else if (s.positions.some((p) => p.token === opp.token)) {
+              reasons.push("duplicate position");
+            }
+          }
+          const decision: Opportunity["decision"] = reasons.length ? "skip" : "enter";
+          const confidence = Math.max(
+            1,
+            Math.min(99, Math.round(safety < 0 ? opp.confidence : safety)),
+          );
+          const updated = s.opportunities.map((o) =>
+            o.id === opportunityId
+              ? {
+                  ...o,
+                  safetyScore: score ?? undefined,
+                  verdict,
+                  safety,
+                  confidence,
+                  decision,
+                  reason: reasons.join(" · ") || o.reason,
+                }
+              : o,
+          );
+          return {
+            opportunities: updated,
+            log: prepend(s.log, {
+              id: id(),
+              ts: Date.now(),
+              type: "audit",
+              summary: `OPPORTUNITY_SCORED · ${opportunityId} · verdict=${verdict} · score=${String(score)} · ${decision.toUpperCase()}`,
+            }).slice(0, MAX_LOG),
+          };
+        }),
       hydrateFromServer: (payload) => {
+        // Apply user-configurable settings from the server so a reload
+        // restores the user's mode, guardrails, safety filters, venues, and
+        // deposit — the durable configuration. Session-runtime data
+        // (trades, logs, positions) is intentionally NOT restored into the
+        // store: each session starts fresh and the server retains the
+        // permanent audit record. This prevents "previous trade session
+        // history" from reappearing after a reload while still keeping the
+        // user's saved settings.
+        const patch: Partial<BotState> = {};
+        const st = payload.settings as Record<string, unknown> | null;
+        if (st) {
+          if (st.mode === "paper" || st.mode === "live") patch.mode = st.mode;
+          if (typeof st.liveConfirmed === "boolean") patch.liveConfirmed = st.liveConfirmed;
+          if (typeof st.userDeposit === "number") patch.userDeposit = st.userDeposit;
+          if (typeof st.platformFeePct === "number") patch.platformFeePct = st.platformFeePct;
+          if (st.guardrails && typeof st.guardrails === "object")
+            patch.guardrails = { ...get().guardrails, ...(st.guardrails as Partial<Guardrails>) };
+          if (st.safetyFilters && typeof st.safetyFilters === "object")
+            patch.safetyFilters = {
+              ...get().safetyFilters,
+              ...(st.safetyFilters as Partial<SafetyFilters>),
+            };
+          if (st.activeVenues && typeof st.activeVenues === "object")
+            patch.activeVenues = {
+              ...get().activeVenues,
+              ...(st.activeVenues as Partial<Record<Venue, boolean>>),
+            };
+          if (typeof st.autoCurate === "boolean") patch.autoCurate = st.autoCurate;
+        }
+        // Restore watchlist from server (durable user data).
+        if (Array.isArray(payload.watchlist) && payload.watchlist.length) {
+          patch.watchlist = (payload.watchlist as Array<Record<string, unknown>>).map((w) => ({
+            id: id(),
+            symbol: String(w.symbol ?? ""),
+            venue: (String(w.venue) as Venue) ?? "raydium",
+            source: (w.source === "auto" ? "auto" : "manual") as WatchSource,
+            enabled: Boolean(w.enabled),
+            safety: Number(w.safety ?? 0),
+            liquiditySol: Number(w.liquidity_sol ?? 0),
+            positiveStreak: Number(w.positive_streak ?? 0),
+            note: w.note ? String(w.note) : undefined,
+            mintAddress: w.mint_address ? String(w.mint_address) : null,
+            addedAt: Number(w.added_at ?? Date.now()),
+          }));
+        }
         set((s) => ({
+          ...patch,
           log: prepend(s.log, {
             id: id(),
             ts: Date.now(),
             type: "audit",
-            summary: `Server state loaded · settings=${payload.settings ? "yes" : "no"} trades=${payload.trades.length}`,
+            summary: `Server state loaded · settings=${payload.settings ? "yes" : "no"} · watchlist=${Array.isArray(payload.watchlist) ? payload.watchlist.length : 0} · trades on server=${payload.trades.length}`,
           }).slice(0, MAX_LOG),
         }));
       },
       setCouncilMemory: (entries) => set({ councilMemory: entries }),
       setCouncilAppendHandler: (fn) => set({ onCouncilAppend: fn }),
     }),
-    { name: "snipe-master-bot", storage: createJSONStorage(() => localStorage) },
+    {
+      name: "snipe-master-bot",
+      storage: createJSONStorage(() => localStorage),
+      // Only persist user-configurable settings and durable learning state.
+      // Session-runtime data (tradeHistory, log, positions, opportunities,
+      // equity curve, session counters, guardrail-breached flag, status) is
+      // intentionally excluded so a page reload starts a fresh session
+      // instead of showing stale trades/logs from a previous run. The server
+      // persistence layer (use-server-persistence) is the canonical source
+      // for trade history and logs when a Supabase session is active;
+      // localStorage is only a cache for settings between reloads.
+      version: 2,
+      // Custom merge: only pick the keys we persist. Without this, a user
+      // upgrading from version 1 (which persisted the entire store including
+      // tradeHistory/log/positions) would still see stale session data on
+      // the first reload because the default merge applies the full old blob.
+      // This merge explicitly drops any non-persisted keys from the persisted
+      // state so the fresh initial values win for session-runtime fields.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<BotState>;
+        return {
+          ...current,
+          mode: p.mode ?? current.mode,
+          liveConfirmed: p.liveConfirmed ?? current.liveConfirmed,
+          userDeposit: p.userDeposit ?? current.userDeposit,
+          bankroll: p.bankroll ?? current.bankroll,
+          platformFeePct: p.platformFeePct ?? current.platformFeePct,
+          guardrails: p.guardrails ?? current.guardrails,
+          safetyFilters: p.safetyFilters ?? current.safetyFilters,
+          activeVenues: p.activeVenues ?? current.activeVenues,
+          autoCurate: p.autoCurate ?? current.autoCurate,
+          walletName: p.walletName ?? current.walletName,
+          councilMemory: p.councilMemory ?? current.councilMemory,
+        };
+      },
+      partialize: (s) => ({
+        mode: s.mode,
+        liveConfirmed: s.liveConfirmed,
+        userDeposit: s.userDeposit,
+        bankroll: s.bankroll,
+        platformFeePct: s.platformFeePct,
+        guardrails: s.guardrails,
+        safetyFilters: s.safetyFilters,
+        activeVenues: s.activeVenues,
+        autoCurate: s.autoCurate,
+        walletName: s.walletName,
+        councilMemory: s.councilMemory,
+      }),
+    },
   ),
 );
