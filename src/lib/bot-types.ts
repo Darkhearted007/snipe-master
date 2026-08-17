@@ -64,7 +64,7 @@ export interface Position {
   // has updated `current` past TP or SL. The auto-exit executor reads these
   // to trigger an on-chain sell, then clears them via confirmLiveExit().
   exitRequested?: boolean;
-  exitReason?: "tp" | "sl" | "trail"; // which threshold triggered the exit request
+  exitReason?: "tp" | "sl" | "trail" | "kill"; // which threshold triggered the exit request
   exitSignature?: string; // set after the on-chain sell confirms
   /** Highest price observed since entry. The trailing stop (sniper exits)
    *  anchors its dump level to this peak, so winners ride the pump and get
