@@ -28,12 +28,11 @@ export const Route = createFileRoute("/api/rpc")({
             : null);
         const upstreams = [rpcFastUrl, heliusUrl].filter(Boolean) as string[];
 
-        if (upstreams.length === 0) {
-          return new Response(JSON.stringify({ error: "RPC not configured" }), {
-            status: 500,
-            headers: { "Content-Type": "application/json", ...CORS },
-          });
-        }
+        // Last-resort public endpoint so the bot can be tested (and light
+        // usage served) without RPC keys. Configured upstreams always win
+        // when present; the public endpoint is rate-limited and only used
+        // when no keyed RPC is available.
+        upstreams.push("https://api.mainnet-beta.solana.com");
 
         const body = await request.text();
         let lastDetail = "no upstreams tried";
