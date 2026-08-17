@@ -331,7 +331,11 @@ const initial = {
     // the fixed take-profit round-trip. The fixed stop-loss still cuts
     // losses when the position never gains.
     trailingStopEnabled: true,
-    trailingStopPct: 8,
+    // Quick-profit exit defaults: tight TP/SL bank gains fast, and a short
+    // trail means pullbacks trigger the sell sooner.
+    trailingStopPct: 6,
+    takeProfitPct: 10,
+    stopLossPct: 5,
   } as SafetyFilters,
   watchlist: [],
   healthTickErrors: 0,
@@ -346,16 +350,18 @@ const initial = {
   onCouncilAppend: undefined as ((e: CouncilMemoryEntry) => void) | undefined,
 };
 
-// Persisted-settings migration (v2 → v3). v2 shipped with live-mode
+// Persisted-settings migration. v2 → v3 shipped with live-mode
 // `safetyFilters.autoExecute` defaulting to OFF, which silently prevented
-// the auto-executor from entering trades. Run once at module load — before
-// the store hydrates — to rewrite the stored blob so existing users inherit
-// the new on-by-default behavior. They can still switch it off afterwards;
+// the auto-executor from entering trades. v3 → v4 applies the quick-profit
+// exit defaults (configurable take-profit/stop-loss plus a tighter trail)
+// so the ratcheted take-profit actually fires fast. Run once at module load
+// — before the store hydrates — to rewrite the stored blob so existing
+// users inherit the new defaults. They can still change them afterwards;
 // that preference then persists normally. Bump PERSIST_VERSION alongside
 // the store's persist `version` whenever a future migration is needed.
 const PERSIST_KEY = "snipe-master-bot";
-const PERSIST_VERSION = 3;
-function migratePersistedSettingsV3() {
+const PERSIST_VERSION = 4;
+function migratePersistedSettingsV4() {
   if (typeof localStorage === "undefined") return;
   try {
     const raw = localStorage.getItem(PERSIST_KEY);
@@ -366,6 +372,8 @@ function migratePersistedSettingsV3() {
           autoExecute?: boolean;
           trailingStopEnabled?: boolean;
           trailingStopPct?: number;
+          takeProfitPct?: number;
+          stopLossPct?: number;
         };
       };
       version?: number;
@@ -375,7 +383,10 @@ function migratePersistedSettingsV3() {
     if (filters) {
       filters.autoExecute = true;
       if (typeof filters.trailingStopEnabled !== "boolean") filters.trailingStopEnabled = true;
-      if (typeof filters.trailingStopPct !== "number") filters.trailingStopPct = 8;
+      // Quick-profit exit defaults (v4): tight targets + short trail.
+      filters.trailingStopPct = 6;
+      filters.takeProfitPct = 10;
+      filters.stopLossPct = 5;
     }
     parsed.version = PERSIST_VERSION;
     localStorage.setItem(PERSIST_KEY, JSON.stringify(parsed));
@@ -383,7 +394,7 @@ function migratePersistedSettingsV3() {
     // Corrupt/foreign blob — persist starts fresh or merges current defaults.
   }
 }
-migratePersistedSettingsV3();
+migratePersistedSettingsV4();
 
 export const useBotStore = create<BotState>()(
   persist(
@@ -953,16 +964,24 @@ export const useBotStore = create<BotState>()(
                   summary: `EXIT_REQUESTED SL ${p.token} · current ${p.current.toFixed(8)} · sl ${p.sl.toFixed(8)} · pending on-chain sell`,
                 });
               } else {
-                // Sniper exits: with the trailing stop enabled, a fixed TP
-                // no longer round-trips winners. Once the position has been
-                // in profit (peak > entry), the stop follows the peak and
-                // exits on a pullback — never below entry, so a trailing
-                // exit always locks in ≥ breakeven. The fixed SL still cuts
-                // losses when trailing is off or the position never gained.
+                // Sniper exits: with the trailing stop enabled, the TP acts
+                // as a ratcheted floor (see below) so winners bank the
+                // defined target on any stall/pullback instead of giving it
+                // back, while the trail keeps riding genuine runners. The
+                // fixed SL still cuts losses when the position never gained.
                 const peak = p.peakPrice ?? Math.max(p.entry, p.current);
                 const trailingActive = s.safetyFilters.trailingStopEnabled && peak > p.entry;
+                // The take-profit is a ratcheted floor: once the position has
+                // ever reached tp (peak >= tp), the exit level rises to at
+                // least tp. A stall or pullback to the target then triggers
+                // the sell and banks the defined profit instead of giving it
+                // back to entry. Genuine runners keep riding under the trail.
                 const trailLevel = trailingActive
-                  ? Math.max(p.entry, peak * (1 - s.safetyFilters.trailingStopPct / 100))
+                  ? Math.max(
+                      p.entry,
+                      peak * (1 - s.safetyFilters.trailingStopPct / 100),
+                      peak >= p.tp && p.tp > 0 ? p.tp : 0,
+                    )
                   : Number.POSITIVE_INFINITY;
                 const hitTrail = p.current <= trailLevel;
                 const hitTp = !s.safetyFilters.trailingStopEnabled && p.tp > 0 && p.current >= p.tp;
@@ -986,12 +1005,20 @@ export const useBotStore = create<BotState>()(
           }
           const drift = (Math.random() - 0.48) * 0.035;
           const current = Math.max(1e-9, p.current * (1 + drift));
-          const peak = Math.max(p.peakPrice ?? p.entry, current);
+          const storedPeak = p.peakPrice ?? p.entry;
+          const peak = Math.max(storedPeak, current);
           const hitSl = p.sl > 0 && current <= p.sl;
-          // Same sniper-exit semantics as live positions (see above).
+          // Same sniper-exit semantics as live positions (see above): the
+          // take-profit is a ratcheted floor — once the position has reached
+          // tp (peak >= tp), any pullback to tp triggers the sell and banks
+          // the defined target instead of giving the gain back.
           const trailingActive = s.safetyFilters.trailingStopEnabled && peak > p.entry;
           const trailLevel = trailingActive
-            ? Math.max(p.entry, peak * (1 - s.safetyFilters.trailingStopPct / 100))
+            ? Math.max(
+                p.entry,
+                peak * (1 - s.safetyFilters.trailingStopPct / 100),
+                peak >= p.tp && p.tp > 0 ? p.tp : 0,
+              )
             : Number.POSITIVE_INFINITY;
           const hitTrail = current <= trailLevel;
           const hitTp = !s.safetyFilters.trailingStopEnabled && p.tp > 0 && current >= p.tp;
@@ -1171,8 +1198,8 @@ export const useBotStore = create<BotState>()(
                 current: price,
                 peakPrice: price,
                 sizeSol,
-                tp: price * 1.12,
-                sl: price * 0.94,
+                tp: price * (1 + s.safetyFilters.takeProfitPct / 100),
+                sl: price * (1 - s.safetyFilters.stopLossPct / 100),
                 openedAt: Date.now(),
                 agentSized: s.guardrails.adaptiveSizing,
               });
@@ -1410,8 +1437,8 @@ export const useBotStore = create<BotState>()(
           // Set TP/SL based on entry price so tick() can detect exits when
           // the live price feed updates `current`. 12% take-profit, 6%
           // stop-loss — matching the paper-mode strategy.
-          tp: entryPrice > 0 ? entryPrice * 1.12 : 0,
-          sl: entryPrice > 0 ? entryPrice * 0.94 : 0,
+          tp: entryPrice > 0 ? entryPrice * (1 + s.safetyFilters.takeProfitPct / 100) : 0,
+          sl: entryPrice > 0 ? entryPrice * (1 - s.safetyFilters.stopLossPct / 100) : 0,
           exitRequested: false,
           mintAddress: tokenAddress ?? null,
           entrySignature: signature,
@@ -1745,7 +1772,7 @@ export const useBotStore = create<BotState>()(
       // persistence layer (use-server-persistence) is the canonical source
       // for trade history and logs when a Supabase session is active;
       // localStorage is only a cache for settings between reloads.
-      version: 3,
+      version: 4,
       // Custom merge: only pick the keys we persist. Without this, a user
       // upgrading from version 1 (which persisted the entire store including
       // tradeHistory/log/positions) would still see stale session data on
@@ -1762,7 +1789,10 @@ export const useBotStore = create<BotState>()(
           bankroll: p.bankroll ?? current.bankroll,
           platformFeePct: p.platformFeePct ?? current.platformFeePct,
           guardrails: p.guardrails ?? current.guardrails,
-          safetyFilters: p.safetyFilters ?? current.safetyFilters,
+          // Field-level merge so new SafetyFilters fields (e.g. the v4
+          // takeProfitPct/stopLossPct quick-profit exits) always receive
+          // their defaults when an older persisted blob lacks them.
+          safetyFilters: { ...current.safetyFilters, ...(p.safetyFilters ?? {}) },
           sniperSecretKey: p.sniperSecretKey ?? current.sniperSecretKey,
           activeVenues: p.activeVenues ?? current.activeVenues,
           autoCurate: p.autoCurate ?? current.autoCurate,

@@ -51,7 +51,9 @@ const DEFAULT_SAFETY_FILTERS: SafetyFilters = {
   maxHolderConcentrationPct: 25,
   autoExecute: true,
   trailingStopEnabled: true,
-  trailingStopPct: 8,
+  trailingStopPct: 6,
+  takeProfitPct: 10,
+  stopLossPct: 5,
 };
 import { cn } from "@/lib/utils";
 import { isSafetyVerdict, useTokenSafety } from "@/hooks/use-token-safety";

@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldCheck, Sparkles, TrendingUp } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Sparkles, Target, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -191,6 +191,40 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
               </span>
             </div>
           </div>
+        </section>
+
+        {/* Exit targets — take-profit / stop-loss */}
+        <section className="space-y-2 border-t pt-4">
+          <div className="flex items-center gap-1.5">
+            <Target className="h-3.5 w-3.5 text-live" />
+            <Label className="text-xs">Exit targets (quick profits)</Label>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Take-profit</span>
+            <span className="font-mono text-xs">{safetyFilters.takeProfitPct}%</span>
+          </div>
+          <Slider
+            value={[safetyFilters.takeProfitPct]}
+            min={5}
+            max={40}
+            step={1}
+            onValueChange={(v) => setSafetyFilters({ takeProfitPct: v[0] })}
+          />
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-xs text-muted-foreground">Stop-loss</span>
+            <span className="font-mono text-xs">{safetyFilters.stopLossPct}%</span>
+          </div>
+          <Slider
+            value={[safetyFilters.stopLossPct]}
+            min={2}
+            max={20}
+            step={1}
+            onValueChange={(v) => setSafetyFilters({ stopLossPct: v[0] })}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Once the price reaches the take-profit, the exit floor ratchets up to it — a pullback to
+            the target banks the gain instead of giving it back. Lower = profits banked sooner.
+          </p>
         </section>
 
         {/* Sniper exits — trailing stop */}

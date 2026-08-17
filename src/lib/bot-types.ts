@@ -131,6 +131,12 @@ export interface SafetyFilters {
   trailingStopEnabled: boolean;
   /** Distance (percent) from the price peak at which a trailing exit fires. */
   trailingStopPct: number;
+  /** Take-profit: sell when the price reaches entry × (1 + takeProfitPct/100).
+   *  Acts as a ratcheted floor once reached — a pullback to the target banks
+   *  the defined profit even with the trailing stop on. */
+  takeProfitPct: number;
+  /** Stop-loss: sell when the price falls to entry × (1 − stopLossPct/100). */
+  stopLossPct: number;
 }
 
 export type SettlementStatus = "n/a" | "pending" | "settled" | "failed";
