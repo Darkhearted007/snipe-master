@@ -34,35 +34,58 @@ export const Route = createFileRoute("/api/jupiter/swap")({
           );
         }
         const key = process.env.JUPITER_API_KEY;
-        const base = key ? "https://api.jup.ag/swap/v1/swap" : "https://quote-api.jup.ag/v6/swap";
-        try {
-          const upstream = await fetch(base, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              accept: "application/json",
-              ...(key ? { "x-api-key": key } : {}),
-            },
-            body: JSON.stringify({
-              quoteResponse: b.quoteResponse,
-              userPublicKey: b.userPublicKey,
-              wrapAndUnwrapSol: b.wrapUnwrapSOL !== false,
-              dynamicComputeUnitLimit: true,
-              prioritizationFeeLamports: "auto",
-            }),
-          });
-          const text = await upstream.text();
-          return new Response(text, {
-            status: upstream.status,
-            headers: { "Content-Type": "application/json", ...CORS },
-          });
-        } catch (e) {
-          const detail = e instanceof Error ? e.message : String(e);
-          return new Response(JSON.stringify({ error: "Swap upstream unavailable", detail }), {
+        const API_BASE = "https://api.jup.ag/swap/v1/swap";
+        const LEGACY_BASE = "https://quote-api.jup.ag/v6/swap";
+        const payload = JSON.stringify({
+          quoteResponse: b.quoteResponse,
+          userPublicKey: b.userPublicKey,
+          wrapAndUnwrapSol: b.wrapUnwrapSOL !== false,
+          dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: "auto",
+        });
+
+        // Prefer api.jup.ag (keyed when JUPITER_API_KEY is set — it also
+        // answers keyless on most networks), then keyless api.jup.ag, then
+        // the legacy quote-api as a last resort (progressively deprecated).
+        const upstreams: Array<{ url: string; headers: Record<string, string> }> = [
+          {
+            url: API_BASE,
+            headers: key
+              ? { "Content-Type": "application/json", accept: "application/json", "x-api-key": key }
+              : { "Content-Type": "application/json", accept: "application/json" },
+          },
+          { url: API_BASE, headers: { "Content-Type": "application/json", accept: "application/json" } },
+          { url: LEGACY_BASE, headers: { "Content-Type": "application/json", accept: "application/json" } },
+        ];
+        let lastDetail = "no upstreams tried";
+        for (const upstream of upstreams) {
+          try {
+            const res = await fetch(upstream.url, {
+              method: "POST",
+              headers: upstream.headers,
+              body: payload,
+            });
+            if (!res.ok) {
+              lastDetail = `HTTP ${res.status} from ${upstream.url}`;
+              continue;
+            }
+            const text = await res.text();
+            return new Response(text, {
+              status: 200,
+              headers: { "Content-Type": "application/json", ...CORS },
+            });
+          } catch (e) {
+            lastDetail = e instanceof Error ? e.message : String(e);
+            continue;
+          }
+        }
+        return new Response(
+          JSON.stringify({ error: "Swap upstream unavailable", detail: lastDetail }),
+          {
             status: 200,
             headers: { "Content-Type": "application/json", ...CORS },
-          });
-        }
+          },
+        );
       },
     },
   },
