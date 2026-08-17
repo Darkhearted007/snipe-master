@@ -634,30 +634,40 @@ export const useBotStore = create<BotState>()(
         }),
       killSwitch: () =>
         set((s) => {
-          const flatHistory: TradeHistoryEntry[] = s.positions.map((p) => ({
-            id: id(),
-            ts: Date.now(),
-            mode: s.mode,
-            token: p.token,
-            venue: p.venue,
-            sizeSol: p.sizeSol,
-            entry: p.entry,
-            exit: p.current,
-            pnlSol: (p.current - p.entry) * (p.sizeSol / p.entry),
-            reason: "kill",
-            feePaidSol: 0,
-            netToUserSol: (p.current - p.entry) * (p.sizeSol / p.entry),
-            settlementStatus: "n/a",
-          }));
+          // In live mode, on-chain positions must be SOLD, not just booked
+          // closed — flag them for exit so the auto-exit executor fires the
+          // real sell (it runs regardless of bot status). Only paper
+          // positions (synthetic, no wallet state) get flat-closed in
+          // bookkeeping.
+          const liveRemaining: Position[] = s.positions
+            .filter((p) => p.live)
+            .map((p) => ({ ...p, exitRequested: true, exitReason: "kill" }));
+          const flatHistory: TradeHistoryEntry[] = s.positions
+            .filter((p) => !p.live)
+            .map((p) => ({
+              id: id(),
+              ts: Date.now(),
+              mode: s.mode,
+              token: p.token,
+              venue: p.venue,
+              sizeSol: p.sizeSol,
+              entry: p.entry,
+              exit: p.current,
+              pnlSol: (p.current - p.entry) * (p.sizeSol / p.entry),
+              reason: "kill",
+              feePaidSol: 0,
+              netToUserSol: (p.current - p.entry) * (p.sizeSol / p.entry),
+              settlementStatus: "n/a",
+            }));
           return {
             status: "idle",
-            positions: [],
+            positions: liveRemaining,
             tradeHistory: [...flatHistory, ...s.tradeHistory].slice(0, MAX_HISTORY),
             log: prepend(s.log, {
               id: id(),
               ts: Date.now(),
               type: "execution",
-              summary: `KILL SWITCH · flattened ${s.positions.length} position(s)`,
+              summary: `KILL SWITCH · flagged ${liveRemaining.length} live position(s) for on-chain exit · flattened ${flatHistory.length} paper position(s)`,
             }).slice(0, MAX_LOG),
           };
         }),

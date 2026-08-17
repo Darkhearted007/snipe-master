@@ -104,8 +104,12 @@ function positionMint(p: Position): string | null {
 export function useLivePriceFeed(enabled: boolean) {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // mint → entry USD price (first observed). Persists across re-renders.
-  const entryPriceUsdRef = useRef<Map<string, number>>(new Map());
+  // mint → { priceUsd, openedAt } (first observed USD price for the
+  // position instance that was open when it was recorded). Persists across
+  // re-renders, but is keyed per position (openedAt) so re-entering the
+  // same mint later re-seeds the reference instead of measuring the new
+  // position against a stale baseline from the previous position.
+  const entryPriceUsdRef = useRef<Map<string, { priceUsd: number; openedAt: number }>>(new Map());
 
   useEffect(() => {
     if (!enabled) {
@@ -165,11 +169,13 @@ export function useLivePriceFeed(enabled: boolean) {
             if (Number.isFinite(priceUsd) && priceUsd > 0 && priceUsd !== p.current) {
               updateLivePositionPrice(mint, priceUsd);
             }
-          } else if (entryUsd == null) {
-            // Legacy position (entry = 1.0): record first observed price.
-            entryPriceUsdRef.current.set(mint, priceUsd);
-          } else if (entryUsd > 0) {
-            const ratio = priceUsd / entryUsd;
+          } else if (entryUsd == null || entryUsd.openedAt !== p.openedAt) {
+            // Legacy position (entry = 1.0): record the first observed price
+            // for THIS position instance. Re-seeds when the same mint is
+            // re-entered later (a fresh position has a new openedAt).
+            entryPriceUsdRef.current.set(mint, { priceUsd, openedAt: p.openedAt });
+          } else if (entryUsd.priceUsd > 0) {
+            const ratio = priceUsd / entryUsd.priceUsd;
             const newCurrent = p.entry * ratio;
             if (Number.isFinite(newCurrent) && newCurrent > 0 && newCurrent !== p.current) {
               updateLivePositionPrice(mint, newCurrent);

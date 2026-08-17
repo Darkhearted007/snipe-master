@@ -149,12 +149,27 @@ export function useDexScreenerStream(enabled: boolean) {
         const results = await Promise.allSettled(QUERIES.map((q) => fetchPairs(q, abort.signal)));
         window.clearTimeout(to);
         let pushed = 0;
+        // Snapshot of mints already in the feed so the 15s poll doesn't
+        // re-push the same trending tokens every cycle. Each re-push would
+        // create a fresh opportunity (new id → re-scored → re-triggers the
+        // executor) and crowd genuinely new tokens out of the 40-slot feed.
+        const feed = useBotStore.getState().opportunities;
+        const feedMints = new Set<string>();
+        for (const o of feed) {
+          if (o.mint) feedMints.add(o.mint);
+          if (o.tokenAddress) feedMints.add(o.tokenAddress);
+        }
         for (const r of results) {
           if (r.status !== "fulfilled") continue;
           const pairs = (r.value.pairs ?? []).filter(
             (p) => p.chainId === "solana" && p.baseToken?.address,
           );
           for (const p of pairs.slice(0, 4)) {
+            // Skip mints already in the feed — the existing entry keeps its
+            // safety verdict and decision, and an open position on the same
+            // mint exits via the normal TP/SL path.
+            const mint = p.baseToken?.address;
+            if (mint && feedMints.has(mint)) continue;
             const symbol = `${p.baseToken?.symbol ?? "?"}/${p.quoteToken?.symbol ?? "?"}`;
             // pump.fun bonding-curve tokens report liquidity.usd = null
             // (no LP pool — the curve IS the liquidity). Estimate from
@@ -175,7 +190,6 @@ export function useDexScreenerStream(enabled: boolean) {
             ) {
               continue;
             }
-            const mint = p.baseToken?.address;
             const priceUsd = p.priceUsd ? parseFloat(p.priceUsd) : null;
             const oppId = pushRealOpportunity({
               token: p.baseToken?.symbol ?? "UNKNOWN",
