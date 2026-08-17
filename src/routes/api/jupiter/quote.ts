@@ -36,25 +36,49 @@ export const Route = createFileRoute("/api/jupiter/quote")({
           restrictIntermediateTokens: "true",
         });
         const key = process.env.JUPITER_API_KEY;
-        const base = key ? "https://api.jup.ag/swap/v1/quote" : "https://quote-api.jup.ag/v6/quote";
-        try {
-          const upstream = await fetch(`${base}?${params.toString()}`, {
+        const API_BASE = "https://api.jup.ag/swap/v1/quote";
+        const LEGACY_BASE = "https://quote-api.jup.ag/v6/quote";
+
+        // Prefer api.jup.ag (keyed when JUPITER_API_KEY is set — it also
+        // answers keyless on most networks), then keyless api.jup.ag, then
+        // the legacy quote-api as a last resort (progressively deprecated).
+        const upstreams: Array<{ url: string; headers: Record<string, string> }> = [
+          {
+            url: API_BASE,
             headers: key
               ? { "x-api-key": key, accept: "application/json" }
               : { accept: "application/json" },
-          });
-          const text = await upstream.text();
-          return new Response(text, {
-            status: upstream.status,
-            headers: { "Content-Type": "application/json", ...CORS },
-          });
-        } catch (e) {
-          const detail = e instanceof Error ? e.message : String(e);
-          return new Response(JSON.stringify({ error: "Quote upstream unavailable", detail }), {
+          },
+          { url: API_BASE, headers: { accept: "application/json" } },
+          { url: LEGACY_BASE, headers: { accept: "application/json" } },
+        ];
+        let lastDetail = "no upstreams tried";
+        for (const upstream of upstreams) {
+          try {
+            const res = await fetch(`${upstream.url}?${params.toString()}`, {
+              headers: upstream.headers,
+            });
+            if (!res.ok) {
+              lastDetail = `HTTP ${res.status} from ${upstream.url}`;
+              continue;
+            }
+            const text = await res.text();
+            return new Response(text, {
+              status: 200,
+              headers: { "Content-Type": "application/json", ...CORS },
+            });
+          } catch (e) {
+            lastDetail = e instanceof Error ? e.message : String(e);
+            continue;
+          }
+        }
+        return new Response(
+          JSON.stringify({ error: "Quote upstream unavailable", detail: lastDetail }),
+          {
             status: 200,
             headers: { "Content-Type": "application/json", ...CORS },
-          });
-        }
+          },
+        );
       },
     },
   },
