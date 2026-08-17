@@ -1,7 +1,7 @@
-import { Wallet } from "lucide-react";
+import { Wallet, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { useWalletSync } from "@/hooks/use-wallet-sync";
+import { useSniperSigner } from "@/components/sniper-signer-provider";
+import { SniperSignerDialog } from "@/components/sniper-signer-dialog";
 import { useBotStore } from "@/lib/bot-store";
 import { computeBackoff } from "@/lib/retry-backoff";
 
@@ -23,19 +25,31 @@ function shortAddr(a: string) {
 
 const HEALTHY_POLL_MS = 20_000;
 
+/** Polls + subscribes to the SOL balance of the ACTIVE wallet address
+ *  (Sniper Signer burner key when armed, otherwise the extension wallet). */
 function useSolBalance(address: string | null) {
   const { connection } = useConnection();
-  const { publicKey } = useWallet();
   const [balance, setBalance] = useState<number | null>(null);
   const [degraded, setDegraded] = useState(false);
   const setWalletBalance = useBotStore((s) => s.setWalletBalance);
   const failuresRef = useRef(0);
 
   useEffect(() => {
-    if (!publicKey || !address) {
+    if (!address) {
       setBalance(null);
       setDegraded(false);
       setWalletBalance?.(null);
+      return;
+    }
+    let publicKey: PublicKey | null = null;
+    try {
+      publicKey = new PublicKey(address);
+    } catch {
+      publicKey = null;
+    }
+    if (!publicKey) {
+      setBalance(null);
+      setDegraded(false);
       return;
     }
     let cancelled = false;
@@ -61,7 +75,7 @@ function useSolBalance(address: string | null) {
       }
       try {
         subId = connection.onAccountChange(
-          publicKey,
+          publicKey!,
           (acc) => apply(acc.lamports / LAMPORTS_PER_SOL),
           "confirmed",
         );
@@ -73,7 +87,7 @@ function useSolBalance(address: string | null) {
     const tick = async () => {
       if (cancelled) return;
       try {
-        const lamports = await connection.getBalance(publicKey, "confirmed");
+        const lamports = await connection.getBalance(publicKey!, "confirmed");
         apply(lamports / LAMPORTS_PER_SOL);
         if (failuresRef.current > 0) {
           // Recovered: reset counter, refresh subscription, resume normal cadence.
@@ -107,7 +121,7 @@ function useSolBalance(address: string | null) {
         void connection.removeAccountChangeListener(subId).catch(() => {});
       }
     };
-  }, [connection, publicKey, address, setWalletBalance]);
+  }, [connection, address, setWalletBalance]);
 
   return { balance, degraded };
 }
@@ -124,8 +138,14 @@ export function WalletBar() {
   useWalletSync();
   const { publicKey, connected, disconnect, wallet } = useWallet();
   const { setVisible } = useWalletModal();
-  const address = publicKey?.toBase58() ?? null;
-  const name = wallet?.adapter.name ?? null;
+  const { signer } = useSniperSigner();
+  const [signerOpen, setSignerOpen] = useState(false);
+
+  // The Sniper Signer (burner key) overrides the extension as the active
+  // wallet when armed.
+  const address = signer ? signer.address : (publicKey?.toBase58() ?? null);
+  const name = signer ? "Sniper Signer" : (wallet?.adapter.name ?? null);
+  const active = signer ? true : connected;
   const { balance, degraded } = useSolBalance(address);
 
   const copy = async () => {
@@ -138,12 +158,16 @@ export function WalletBar() {
     }
   };
 
-  if (connected && address) {
+  if (active && address) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="secondary" size="sm" className="gap-1.5">
-            <Wallet className="h-3.5 w-3.5" />
+          <Button
+            variant="secondary"
+            size="sm"
+            className={signer ? "gap-1.5 border-warning/50 bg-warning/10 text-warning" : "gap-1.5"}
+          >
+            {signer ? <Zap className="h-3.5 w-3.5" /> : <Wallet className="h-3.5 w-3.5" />}
             <span className="font-mono text-xs">{shortAddr(address)}</span>
             <span className="font-mono text-[10px] text-muted-foreground">
               · {formatSol(balance)}
@@ -152,8 +176,10 @@ export function WalletBar() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
-          <DropdownMenuLabel className="text-xs">
-            {name ? `${name} · connected` : "Connected wallet"}
+          <DropdownMenuLabel className="flex items-center gap-1.5 text-xs">
+            {signer && <Zap className="h-3 w-3 text-warning" />}
+            {name}
+            {signer ? " · auto-sign (no popups)" : " · connected"}
           </DropdownMenuLabel>
           <div className="px-2 pb-1 font-mono text-[10px] break-all text-muted-foreground">
             {address}
@@ -164,25 +190,45 @@ export function WalletBar() {
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={copy}>Copy address</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setVisible(true)}>Change wallet</DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              void disconnect();
-              toast("Wallet disconnected");
-            }}
-            className="text-danger"
-          >
-            Disconnect
+          <DropdownMenuItem onClick={() => setSignerOpen(true)}>
+            <Zap className="h-3.5 w-3.5 text-warning" /> Sniper Signer
           </DropdownMenuItem>
+          {!signer && (
+            <DropdownMenuItem onClick={() => setVisible(true)}>Change wallet</DropdownMenuItem>
+          )}
+          {!signer && (
+            <DropdownMenuItem
+              onClick={() => {
+                void disconnect();
+                toast("Wallet disconnected");
+              }}
+              className="text-danger"
+            >
+              Disconnect
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     );
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={() => setVisible(true)} className="gap-1.5">
-      <Wallet className="h-3.5 w-3.5" />
-      <span className="font-mono text-xs">Connect wallet</span>
-    </Button>
+    <div className="flex items-center gap-1.5">
+      <Button variant="outline" size="sm" onClick={() => setVisible(true)} className="gap-1.5">
+        <Wallet className="h-3.5 w-3.5" />
+        <span className="font-mono text-xs">Connect wallet</span>
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setSignerOpen(true)}
+        className="gap-1.5 border-warning/40 text-warning hover:bg-warning/10 hover:text-warning"
+        title="Arm the burner-key Sniper Signer for popup-free auto-signing"
+      >
+        <Zap className="h-3.5 w-3.5" />
+        <span className="font-mono text-xs">Sniper Signer</span>
+      </Button>
+      <SniperSignerDialog open={signerOpen} onOpenChange={setSignerOpen} />
+    </div>
   );
 }

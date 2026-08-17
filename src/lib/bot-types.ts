@@ -64,8 +64,12 @@ export interface Position {
   // has updated `current` past TP or SL. The auto-exit executor reads these
   // to trigger an on-chain sell, then clears them via confirmLiveExit().
   exitRequested?: boolean;
-  exitReason?: "tp" | "sl"; // which threshold triggered the exit request
+  exitReason?: "tp" | "sl" | "trail"; // which threshold triggered the exit request
   exitSignature?: string; // set after the on-chain sell confirms
+  /** Highest price observed since entry. The trailing stop (sniper exits)
+   *  anchors its dump level to this peak, so winners ride the pump and get
+   *  sold on pullback instead of round-tripping at the fixed take-profit. */
+  peakPrice?: number;
   /** Raw token amount (string, base units) received from the entry buy.
    *  Needed for Jupiter (AMM) sells which require an exact input amount.
    *  Pump.fun bonding-curve sells can omit it (server sells full ATA). */
@@ -118,8 +122,29 @@ export interface SafetyFilters {
   /** When true (live mode only), the bot auto-executes swaps for
    *  opportunities that pass all safety gates — no manual Execute click
    *  needed. Requires a connected wallet and live-confirmed acknowledgement.
-   *  Off by default so live trading is always opt-in. */
+   *  On by default so the bot actually enters trades; the connected wallet
+   *  and live-mode acknowledgement remain the real opt-in gates. */
   autoExecute: boolean;
+  /** Sniper exits: when true, positions in profit trail a stop behind the
+   *  price peak (trailingStopPct below) instead of round-tripping at the
+   *  fixed take-profit. The fixed stop-loss still cuts losses. */
+  trailingStopEnabled: boolean;
+  /** Distance (percent) from the price peak at which a trailing exit fires. */
+  trailingStopPct: number;
+  /** Take-profit: sell when the price reaches entry × (1 + takeProfitPct/100).
+   *  Acts as a ratcheted floor once reached — a pullback to the target banks
+   *  the defined profit even with the trailing stop on. */
+  takeProfitPct: number;
+  /** Stop-loss: sell when the price falls to entry × (1 − stopLossPct/100). */
+  stopLossPct: number;
+  /** Wallet auto-approve (batch entries & exits): when true and the browser
+   *  wallet extension is the signing path, multiple entries OR exits that
+   *  arrive in the same tick are signed together in ONE wallet approval
+   *  (signAllTransactions) instead of one popup per transaction. Browser
+   *  wallets still require an approval per burst — the Sniper Signer
+   *  (burner key) is the only fully popup-free path. With the Sniper
+   *  Signer armed this flag is irrelevant. */
+  walletAutoApprove: boolean;
 }
 
 export type SettlementStatus = "n/a" | "pending" | "settled" | "failed";
@@ -134,7 +159,7 @@ export interface TradeHistoryEntry {
   entry: number;
   exit: number;
   pnlSol: number;
-  reason: "tp" | "sl" | "manual" | "kill";
+  reason: "tp" | "sl" | "trail" | "manual" | "kill";
   feePaidSol: number; // platform fee routed on profit
   netToUserSol: number; // pnl after fee (only live)
   feeWallet?: string;

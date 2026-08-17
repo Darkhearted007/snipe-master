@@ -27,7 +27,7 @@ import { useEffect, useRef } from "react";
 import { useBotStore } from "@/lib/bot-store";
 import type { Position } from "@/lib/bot-types";
 
-const POLL_INTERVAL_MS = 10_000; // 10s — fast enough for TP/SL, gentle on the API
+const POLL_INTERVAL_MS = 3_000; // 3s — quick-profit exits need fast signal detection; still gentle on the API
 const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_MINTS_PER_REQUEST = 50; // DexScreener limit
 

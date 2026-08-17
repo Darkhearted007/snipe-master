@@ -13,6 +13,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "test": "vitest run",
     "typecheck": "tsc",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -102,6 +103,7 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.16",
-    "vite-plugin-node-polyfills": "^0.28.0"
+    "vite-plugin-node-polyfills": "^0.28.0",
+    "vitest": "^4.1.10"
   }
 }

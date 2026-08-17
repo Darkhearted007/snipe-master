@@ -14,8 +14,10 @@
 // the platform fee is settled on-chain, and only on profitable exits.
 import { useEffect, useRef } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import type { Adapter } from "@solana/wallet-adapter-base";
 import { useServerFn } from "@tanstack/react-start";
 import { useBotStore } from "@/lib/bot-store";
+import { useSniperSigner } from "@/components/sniper-signer-provider";
 import { executeSwap, sendSolTransfer, SOL_MINT } from "@/lib/jupiter-client";
 import { updateTradeSettlement } from "@/lib/persistence.functions";
 import { supabase } from "@/integrations/supabase/client";
@@ -72,13 +74,26 @@ async function getBalanceLamports(
 export function useLiveExecutor() {
   const { connection } = useConnection();
   const { wallet, publicKey } = useWallet();
+  const { signer } = useSniperSigner();
   const patchSettlement = useServerFn(updateTradeSettlement);
   const processedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     const adapter = wallet?.adapter;
-    if (!adapter || !publicKey) return;
+    // With the Sniper Signer armed, the burner key is the trading wallet
+    // and platform fees come out of it. sendSolTransfer takes a
+    // wallet-adapter-shaped object; the signer satisfies that shape.
+    const signerWallet = signer
+      ? ({
+          publicKey: signer.publicKey,
+          signTransaction: signer.signTransaction,
+          signAllTransactions: signer.signAllTransactions,
+        } as unknown as Adapter)
+      : null;
+    const effectiveWallet = signerWallet ?? adapter;
+    const effectivePublicKey = signer?.publicKey ?? publicKey;
+    if (!effectiveWallet || !effectivePublicKey) return;
     let cancelled = false;
 
     // Seed processed with any already-terminal rows so we don't retroactively
@@ -137,7 +152,7 @@ export function useLiveExecutor() {
             await persistSettlement(t.id, "settled");
             continue;
           }
-          if (t.feeWallet && publicKey.toBase58() === t.feeWallet) {
+          if (t.feeWallet && effectivePublicKey.toBase58() === t.feeWallet) {
             setSettlement(t.id, {
               status: "settled",
               error: "user wallet == fee wallet; no-op",
@@ -164,7 +179,7 @@ export function useLiveExecutor() {
           }
 
           // 1. Pre-settlement balance snapshot.
-          const beforeLamports = await getBalanceLamports(connection, publicKey);
+          const beforeLamports = await getBalanceLamports(connection, effectivePublicKey);
           if (beforeLamports != null) {
             logAudit(
               `Reconcile#${shortId} pre-settlement balance ${(beforeLamports / 1e9).toFixed(6)} SOL`,
@@ -180,7 +195,7 @@ export function useLiveExecutor() {
             try {
               sig = await sendSolTransfer({
                 connection,
-                wallet: adapter,
+                wallet: effectiveWallet,
                 toAddress: t.feeWallet as string,
                 lamports,
               });
@@ -228,7 +243,7 @@ export function useLiveExecutor() {
           }
 
           // 4. Post-settlement balance snapshot + delta check.
-          const afterLamports = await getBalanceLamports(connection, publicKey);
+          const afterLamports = await getBalanceLamports(connection, effectivePublicKey);
           let reconcileNote: string | undefined;
           if (beforeLamports != null && afterLamports != null) {
             const observedDelta = beforeLamports - afterLamports;
@@ -240,7 +255,7 @@ export function useLiveExecutor() {
             );
             if (!ok) reconcileNote = `reconcile mismatch: drift ${drift} lamports`;
             logAudit(
-              `Reconcile#${shortId} net-to-user retained ${t.netToUserSol.toFixed(6)} SOL in wallet ${publicKey.toBase58().slice(0, 6)}…`,
+              `Reconcile#${shortId} net-to-user retained ${t.netToUserSol.toFixed(6)} SOL in wallet ${effectivePublicKey.toBase58().slice(0, 6)}…`,
               "audit",
             );
           } else {
@@ -264,7 +279,7 @@ export function useLiveExecutor() {
       cancelled = true;
       unsub();
     };
-  }, [connection, wallet, publicKey, patchSettlement]);
+  }, [connection, wallet, publicKey, signer, patchSettlement]);
 }
 
 // Re-export helpers so components can call ad-hoc quotes.

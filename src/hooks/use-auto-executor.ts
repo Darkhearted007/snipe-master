@@ -22,16 +22,26 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 import { useBotStore } from "@/lib/bot-store";
 import { useLiveExecution } from "./use-live-execution";
+import { useSniperSigner } from "@/components/sniper-signer-provider";
 import { SOL_MINT } from "@/lib/jupiter";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export function useAutoExecutor() {
   const { publicKey, signTransaction, connected } = useWallet();
-  const { executeSwap, walletReady } = useLiveExecution();
+  const { signer: sniper } = useSniperSigner();
+  const { executeSwap, executeBatchSwaps, walletReady } = useLiveExecution();
   const processedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Promise<unknown>>(Promise.resolve());
   const enabledRef = useRef(false);
+
+  // The Sniper Signer (burner key) counts as a signing wallet with no
+  // popups; otherwise the browser wallet extension must be connected.
+  const canSign = sniper ? true : !!(connected && publicKey && signTransaction);
+  // When the browser wallet is the signing path (no Sniper Signer),
+  // walletAutoApprove batches multiple entries into ONE signAllTransactions
+  // call so the user sees a single approval popup for the burst.
+  const useBatchEntry = !sniper && canSign;
 
   useEffect(() => {
     const unsub = useBotStore.subscribe((state) => {
@@ -44,9 +54,7 @@ export function useAutoExecutor() {
         state.safetyFilters.autoExecute &&
         state.liveConfirmed &&
         state.walletConnected &&
-        connected &&
-        !!publicKey &&
-        !!signTransaction;
+        canSign;
       enabledRef.current = armed;
       if (!armed) return;
 
@@ -61,6 +69,105 @@ export function useAutoExecutor() {
       for (const o of fresh) processedRef.current.add(o.id);
 
       inFlightRef.current = inFlightRef.current.then(async () => {
+        // ------------------------------------------------------------------
+        // Wallet auto-approve (batch entries): when the browser wallet is
+        // the signing path (no Sniper Signer), walletAutoApprove is on,
+        // and several entries arrive at once, build every swap transaction
+        // and sign them ALL in one wallet approval — one popup for the
+        // burst instead of one per position. A single entry still uses the
+        // sequential path below (one approval either way).
+        // ------------------------------------------------------------------
+        const s0 = useBotStore.getState();
+        if (
+          s0.safetyFilters.walletAutoApprove &&
+          fresh.length >= 2 &&
+          useBatchEntry
+        ) {
+          // Phase 1+2: gate + commit every opportunity before building txs.
+          const valid: Array<{
+            opp: (typeof fresh)[number];
+            sizeSol: number;
+            amountLamports: number;
+            isPumpFunBondingCurve: boolean;
+            outputMint: string;
+          }> = [];
+          for (const opp of fresh) {
+            const s = useBotStore.getState();
+            if (s.status !== "running" || s.guardrailBreached) continue;
+            const gate = s.checkLiveEntry(opp.id);
+            if (!gate.ok) {
+              s.logAudit(`AUTO_SKIP · ${opp.token} · ${gate.error}`, "safety");
+              continue;
+            }
+            const committed = s.requestLiveEntry(opp.id);
+            if (!committed.ok) {
+              s.logAudit(`AUTO_SKIP · ${opp.token} · ${committed.error}`, "safety");
+              continue;
+            }
+            const outputMint = opp.mint ?? opp.tokenAddress ?? null;
+            if (!outputMint) {
+              s.logAudit(`AUTO_SKIP · ${opp.token} · no mint resolved`, "safety");
+              continue;
+            }
+            const amountLamports = Math.max(1, Math.floor(committed.sizeSol * LAMPORTS_PER_SOL));
+            const isPumpFunBondingCurve = opp.venue === "pumpfun";
+            s.logAudit(
+              `AUTO_ENTRY · ${opp.token} · size ${committed.sizeSol.toFixed(5)} SOL · score ${opp.safetyScore ?? opp.score ?? opp.safety}`,
+              "execution",
+            );
+            valid.push({ opp, sizeSol: committed.sizeSol, amountLamports, isPumpFunBondingCurve, outputMint });
+          }
+          if (!valid.length) return;
+
+          try {
+            const results = await executeBatchSwaps(
+              valid.map((v) => ({
+                inputMint: SOL_MINT,
+                outputMint: v.outputMint,
+                amountLamports: v.amountLamports,
+                slippageBps: 300,
+                maxPriceImpactPct: 15,
+                isPumpFunBondingCurve: v.isPumpFunBondingCurve,
+              })),
+            );
+            const cur = useBotStore.getState();
+            for (let i = 0; i < valid.length; i++) {
+              const { opp, sizeSol } = valid[i];
+              const r = results[i];
+              cur.confirmLiveEntry({
+                opportunityId: opp.id,
+                sizeSol,
+                signature: r.signature,
+                tokensReceivedRaw: r.outAmount,
+              });
+              cur.logAudit(
+                `LIVE_SWAP_CONFIRMED · ${opp.token} · in ${valid[i].amountLamports} lamports · out ${r.outAmount} · impact ${r.priceImpactPct}%`,
+                "execution",
+              );
+              toast.success(`Auto-entry filled · ${opp.token}`, {
+                description: `${sizeSol.toFixed(4)} SOL · score ${opp.safetyScore ?? opp.score ?? opp.safety}`,
+              });
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const stage = (err as { stage?: string }).stage;
+            // Clear processed markers so a re-emit retries the batch.
+            for (const { opp } of valid) processedRef.current.delete(opp.id);
+            s0.logAudit(
+              `AUTO_ENTRY_BATCH_FAILED${stage ? ` · stage=${stage}` : ""} · ${valid.length} entry(ies) · ${message}`,
+              "error",
+            );
+            for (const { opp, sizeSol } of valid) {
+              s0.failLiveEntry({ opportunityId: opp.id, reason: message });
+            }
+            toast.error(`Auto-entry batch failed`, {
+              description: stage ? `${stage}: ${message}` : message,
+            });
+          }
+          return;
+        }
+
+        // --- Sequential path (single entry or batch not enabled) ----------
         for (const opp of fresh) {
           // Re-read latest store state inside the async loop — the
           // bankroll/guardrail may have moved since we snapshotted.
@@ -137,5 +244,5 @@ export function useAutoExecutor() {
       });
     });
     return () => unsub();
-  }, [connected, publicKey, signTransaction, executeSwap, walletReady]);
+  }, [connected, publicKey, signTransaction, sniper, canSign, useBatchEntry, executeSwap, executeBatchSwaps, walletReady]);
 }

@@ -26,6 +26,7 @@ import { StatusStrip } from "@/components/status-strip";
 import { Toaster } from "@/components/ui/sonner";
 import { useBotSimulator } from "@/hooks/use-bot-simulator";
 import { SolanaProviders } from "@/lib/solana-provider";
+import { SniperSignerProvider } from "@/components/sniper-signer-provider";
 import { useServerPersistence } from "@/hooks/use-server-persistence";
 import { useCouncilMemory } from "@/hooks/use-council-memory";
 import { useDexScreenerStream } from "@/hooks/use-dexscreener-stream";
@@ -158,7 +159,9 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <GlobalErrorBoundary>
         <SolanaProviders>
-          <AppShell />
+          <SniperSignerProvider>
+            <AppShell />
+          </SniperSignerProvider>
         </SolanaProviders>
       </GlobalErrorBoundary>
       <Toaster theme="dark" />
