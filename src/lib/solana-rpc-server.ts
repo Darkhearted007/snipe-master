@@ -14,9 +14,12 @@ export async function rpcRequest<T = unknown>(method: string, params: unknown[])
       ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
       : null);
   const upstreams = [rpcFastUrl, heliusUrl].filter(Boolean) as string[];
-  if (upstreams.length === 0) {
-    throw new Error("RPC not configured (RPCFAST_* or HELIUS_* missing)");
-  }
+
+  // Last-resort public endpoint so pump.fun builds work in sandboxes and
+  // previews without RPC keys. Configured upstreams always win when
+  // present; the public endpoint is rate-limited and only used when no
+  // keyed RPC is available.
+  upstreams.push("https://api.mainnet-beta.solana.com");
 
   let lastError: Error | null = null;
   for (const url of upstreams) {
