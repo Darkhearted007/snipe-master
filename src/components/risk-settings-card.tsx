@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldCheck, Sparkles, Target, TrendingUp } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Sparkles, Target, TrendingUp, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -261,6 +261,26 @@ export function RiskSettingsCard({ compact = false }: { compact?: boolean }) {
             <span>Tighter = sell sooner</span>
             <span>Wider = ride longer pumps</span>
           </div>
+        </section>
+
+        {/* Wallet auto-approve — batch exits */}
+        <section className="flex items-center justify-between border-t pt-4">
+          <div>
+            <Label htmlFor="wallet-approve" className="flex items-center gap-1.5 text-xs">
+              <Zap className="h-3.5 w-3.5 text-warning" />
+              Wallet auto-approve (batch entries & exits)
+            </Label>
+            <p className="text-[11px] text-muted-foreground">
+              Batches multiple entries or exits arriving at the same tick into a single wallet
+              approval instead of one popup per transaction. Your wallet still approves each burst once
+              — the ⚡ Sniper Signer is the only fully popup-free path.
+            </p>
+          </div>
+          <Switch
+            id="wallet-approve"
+            checked={safetyFilters.walletAutoApprove}
+            onCheckedChange={(v) => setSafetyFilters({ walletAutoApprove: v })}
+          />
         </section>
 
         {/* Duplicate guard */}

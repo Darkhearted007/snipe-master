@@ -137,6 +137,14 @@ export interface SafetyFilters {
   takeProfitPct: number;
   /** Stop-loss: sell when the price falls to entry × (1 − stopLossPct/100). */
   stopLossPct: number;
+  /** Wallet auto-approve (batch entries & exits): when true and the browser
+   *  wallet extension is the signing path, multiple entries OR exits that
+   *  arrive in the same tick are signed together in ONE wallet approval
+   *  (signAllTransactions) instead of one popup per transaction. Browser
+   *  wallets still require an approval per burst — the Sniper Signer
+   *  (burner key) is the only fully popup-free path. With the Sniper
+   *  Signer armed this flag is irrelevant. */
+  walletAutoApprove: boolean;
 }
 
 export type SettlementStatus = "n/a" | "pending" | "settled" | "failed";

@@ -17,6 +17,7 @@ import type {
 } from "./bot-types";
 import { MIN_USER_DEPOSIT_SOL, PLATFORM_FEE_WALLET } from "./bot-types";
 import { parseSniperSecretKey } from "./sniper-signer";
+import { evaluateExit } from "./exit-decision";
 import {
   buildDebrief,
   scoutBiasForToken,
@@ -336,6 +337,9 @@ const initial = {
     trailingStopPct: 6,
     takeProfitPct: 10,
     stopLossPct: 5,
+    // Wallet auto-approve (batch exits): sign same-tick exits in one wallet
+    // approval instead of one popup per position.
+    walletAutoApprove: true,
   } as SafetyFilters,
   watchlist: [],
   healthTickErrors: 0,
@@ -954,49 +958,33 @@ export const useBotStore = create<BotState>()(
             // Only check TP/SL if the price feed has updated `current` away
             // from entry (otherwise current === entry and no threshold is hit).
             if (p.current !== p.entry) {
-              const hitSl = p.sl > 0 && p.current <= p.sl;
-              if (hitSl) {
-                remaining.push({ ...p, exitRequested: true, exitReason: "sl" });
+              const peak = p.peakPrice ?? Math.max(p.entry, p.current);
+              // Sniper exits (see evaluateExit in lib/exit-decision): SL is
+              // checked first; with the trailing stop ON the TP is a
+              // ratcheted floor — once peak >= tp, any pullback to the
+              // target banks the defined profit — while the trail rides
+              // genuine runners; with it OFF the fixed TP fires immediately
+              // at the target.
+              const decision = evaluateExit({
+                current: p.current,
+                entry: p.entry,
+                peak,
+                tp: p.tp,
+                sl: p.sl,
+                trailingStopEnabled: s.safetyFilters.trailingStopEnabled,
+                trailingStopPct: s.safetyFilters.trailingStopPct,
+              });
+              if (decision.fire) {
+                const reason = decision.reason;
+                remaining.push({ ...p, exitRequested: true, exitReason: reason });
                 exitLogs.push({
                   id: id(),
                   ts: Date.now(),
                   type: "execution",
-                  summary: `EXIT_REQUESTED SL ${p.token} · current ${p.current.toFixed(8)} · sl ${p.sl.toFixed(8)} · pending on-chain sell`,
+                  summary: `EXIT_REQUESTED ${reason.toUpperCase()} ${p.token} · current ${p.current.toFixed(8)}${reason === "trail" ? ` · trail ${decision.level.toFixed(8)} (peak ${peak.toFixed(8)})` : reason === "sl" ? ` · sl ${decision.level.toFixed(8)}` : ` · tp ${decision.level.toFixed(8)}`} · pending on-chain sell`,
                 });
               } else {
-                // Sniper exits: with the trailing stop enabled, the TP acts
-                // as a ratcheted floor (see below) so winners bank the
-                // defined target on any stall/pullback instead of giving it
-                // back, while the trail keeps riding genuine runners. The
-                // fixed SL still cuts losses when the position never gained.
-                const peak = p.peakPrice ?? Math.max(p.entry, p.current);
-                const trailingActive = s.safetyFilters.trailingStopEnabled && peak > p.entry;
-                // The take-profit is a ratcheted floor: once the position has
-                // ever reached tp (peak >= tp), the exit level rises to at
-                // least tp. A stall or pullback to the target then triggers
-                // the sell and banks the defined profit instead of giving it
-                // back to entry. Genuine runners keep riding under the trail.
-                const trailLevel = trailingActive
-                  ? Math.max(
-                      p.entry,
-                      peak * (1 - s.safetyFilters.trailingStopPct / 100),
-                      peak >= p.tp && p.tp > 0 ? p.tp : 0,
-                    )
-                  : Number.POSITIVE_INFINITY;
-                const hitTrail = p.current <= trailLevel;
-                const hitTp = !s.safetyFilters.trailingStopEnabled && p.tp > 0 && p.current >= p.tp;
-                if (hitTrail || hitTp) {
-                  const reason = hitTrail ? "trail" : "tp";
-                  remaining.push({ ...p, exitRequested: true, exitReason: reason });
-                  exitLogs.push({
-                    id: id(),
-                    ts: Date.now(),
-                    type: "execution",
-                    summary: `EXIT_REQUESTED ${reason.toUpperCase()} ${p.token} · current ${p.current.toFixed(8)}${reason === "trail" ? ` · trail ${trailLevel.toFixed(8)} (peak ${peak.toFixed(8)})` : ` · tp ${p.tp.toFixed(8)}`} · pending on-chain sell`,
-                  });
-                } else {
-                  remaining.push(p);
-                }
+                remaining.push(p);
               }
             } else {
               remaining.push(p);
@@ -1007,26 +995,22 @@ export const useBotStore = create<BotState>()(
           const current = Math.max(1e-9, p.current * (1 + drift));
           const storedPeak = p.peakPrice ?? p.entry;
           const peak = Math.max(storedPeak, current);
-          const hitSl = p.sl > 0 && current <= p.sl;
-          // Same sniper-exit semantics as live positions (see above): the
-          // take-profit is a ratcheted floor — once the position has reached
-          // tp (peak >= tp), any pullback to tp triggers the sell and banks
-          // the defined target instead of giving the gain back.
-          const trailingActive = s.safetyFilters.trailingStopEnabled && peak > p.entry;
-          const trailLevel = trailingActive
-            ? Math.max(
-                p.entry,
-                peak * (1 - s.safetyFilters.trailingStopPct / 100),
-                peak >= p.tp && p.tp > 0 ? p.tp : 0,
-              )
-            : Number.POSITIVE_INFINITY;
-          const hitTrail = current <= trailLevel;
-          const hitTp = !s.safetyFilters.trailingStopEnabled && p.tp > 0 && current >= p.tp;
-          if (!hitSl && !hitTrail && !hitTp) {
+          // Same sniper-exit semantics as live positions — see evaluateExit
+          // in lib/exit-decision (SL first, ratcheted TP floor, trail).
+          const decision = evaluateExit({
+            current,
+            entry: p.entry,
+            peak,
+            tp: p.tp,
+            sl: p.sl,
+            trailingStopEnabled: s.safetyFilters.trailingStopEnabled,
+            trailingStopPct: s.safetyFilters.trailingStopPct,
+          });
+          if (!decision.fire) {
             remaining.push({ ...p, current, peakPrice: peak });
             continue;
           }
-          const reason = hitSl ? "sl" : hitTrail ? "trail" : "tp";
+          const reason = decision.reason;
           const pnl = (current - p.entry) * (p.sizeSol / p.entry);
           const fee = s.mode === "live" && pnl > 0 ? pnl * (s.platformFeePct / 100) : 0;
           const net = pnl - fee;

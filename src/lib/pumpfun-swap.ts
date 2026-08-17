@@ -63,15 +63,17 @@ const PUMPFUN_SELL_URL = "/api/pumpfun/sell";
  * The `signTransaction` function comes from the wallet adapter — same as
  * the Jupiter path in use-live-execution.ts.
  */
-export async function executePumpFunBuy(
+/**
+ * Build-only pump.fun buy transaction — returns the unsigned
+ * VersionedTransaction + expected token output, without signing.
+ * Used by executeBatchSwaps to batch-sign multiple entries in one wallet
+ * approval (signAllTransactions).
+ */
+export async function buildPumpFunBuyTransaction(
   params: PumpFunBuyParams,
-  connection: Connection,
   publicKey: PublicKey,
-  signTransaction: (tx: VersionedTransaction) => Promise<VersionedTransaction>,
-): Promise<PumpFunBuyResult> {
+): Promise<{ tx: VersionedTransaction; expectedTokensOut: string }> {
   const { mint, amountLamports, slippageBps, priorityFeeLamports } = params;
-
-  // 1. Ask the server to build the pump.fun buy transaction
   let swapTransactionB64: string;
   let expectedTokensOut: string;
   try {
@@ -107,8 +109,6 @@ export async function executePumpFunBuy(
       "build",
     );
   }
-
-  // 2. Deserialize the transaction for wallet signing
   let tx: VersionedTransaction;
   try {
     tx = VersionedTransaction.deserialize(
@@ -120,8 +120,19 @@ export async function executePumpFunBuy(
       "build",
     );
   }
+  return { tx, expectedTokensOut };
+}
 
-  // 3. Wallet signs (browser popup — the only place a private key is involved)
+export async function executePumpFunBuy(
+  params: PumpFunBuyParams,
+  connection: Connection,
+  publicKey: PublicKey,
+  signTransaction: (tx: VersionedTransaction) => Promise<VersionedTransaction>,
+): Promise<PumpFunBuyResult> {
+  const { amountLamports } = params;
+  const { tx, expectedTokensOut } = await buildPumpFunBuyTransaction(params, publicKey);
+
+  // Wallet signs (browser popup — the only place a private key is involved)
   let signed: VersionedTransaction;
   try {
     signed = await signTransaction(tx);
@@ -132,7 +143,7 @@ export async function executePumpFunBuy(
     );
   }
 
-  // 4. Submit to the network
+  // Submit to the network
   let signature: string;
   try {
     signature = await connection.sendRawTransaction(signed.serialize(), {
@@ -143,7 +154,7 @@ export async function executePumpFunBuy(
     throw new PumpFunError(e instanceof Error ? e.message : "Failed to submit transaction", "send");
   }
 
-  // 5. Confirm the transaction
+  // Confirm the transaction
   try {
     const latestBlockhash = await connection.getLatestBlockhash();
     const confirmation = await connection.confirmTransaction(
@@ -154,8 +165,6 @@ export async function executePumpFunBuy(
       throw new Error(JSON.stringify(confirmation.value.err));
     }
   } catch (e) {
-    // Transaction submitted but confirmation failed/timed out.
-    // Surface the signature so the caller can look it up manually.
     throw new PumpFunError(
       `Submitted (sig ${signature}) but confirmation failed: ${
         e instanceof Error ? e.message : String(e)
@@ -168,9 +177,6 @@ export async function executePumpFunBuy(
     signature,
     inAmount: String(Math.floor(amountLamports)),
     outAmount: expectedTokensOut,
-    // pump.fun doesn't provide price impact in the same way Jupiter does;
-    // the constant-product math is deterministic, so we report "0" and let
-    // the caller use the expectedTokensOut for logging.
     priceImpactPct: "0",
   };
 }

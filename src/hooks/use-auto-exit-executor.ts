@@ -15,16 +15,18 @@
 //     if the store re-emits it across renders.
 //   • Serialized via inFlightRef so concurrent exits don't race wallet
 //     signing popups.
-//   • Pump.fun bonding-curve tokens route to /api/pumpfun/sell (server sells
-//     the full ATA balance). AMM tokens route through Jupiter and require
-//     `tokensReceivedRaw` (stored on the position at entry time).
+//   • Full-exit sells: pump.fun bonding-curve tokens route to
+//     /api/pumpfun/sell (server sells the full ATA balance) and AMM tokens
+//     route through Jupiter with the wallet's actual on-chain token balance
+//     resolved at sell time — never the stale entry-time expected amount,
+//     which fails the exit when the buy fills with slippage.
 //   • Failures are logged and the position stays flagged so the user can
 //     retry via the manual Close button.
 import { useEffect, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 import { useBotStore } from "@/lib/bot-store";
-import { useLiveExecution } from "./use-live-execution";
+import { useLiveExecution, type LiveSellParams } from "./use-live-execution";
 import { useSniperSigner } from "@/components/sniper-signer-provider";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -32,7 +34,7 @@ const LAMPORTS_PER_SOL = 1_000_000_000;
 export function useAutoExitExecutor() {
   const { publicKey, signTransaction, connected } = useWallet();
   const { signer: sniper } = useSniperSigner();
-  const { executeLiveSell, walletReady } = useLiveExecution();
+  const { executeLiveSell, executeLiveSells, walletReady } = useLiveExecution();
   const processedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -59,6 +61,83 @@ export function useAutoExitExecutor() {
       for (const p of fresh) processedRef.current.add(p.id);
 
       inFlightRef.current = inFlightRef.current.then(async () => {
+        const store = useBotStore.getState();
+
+        // Wallet auto-approve (batch exits): when several positions are
+        // flagged at once and the browser wallet extension is the signing
+        // path (no Sniper Signer), build every sell transaction and sign
+        // them ALL in one wallet approval (signAllTransactions) — one
+        // popup for the burst instead of one per position. A single exit
+        // still uses the sequential path below (one approval either way).
+        if (store.safetyFilters.walletAutoApprove && fresh.length >= 2 && !sniper) {
+          const valid: Array<{ p: (typeof fresh)[number]; params: LiveSellParams }> = [];
+          for (const p of fresh) {
+            // The position may have already been closed by a manual action.
+            const stillOpen = store.positions.find((x) => x.id === p.id);
+            if (!stillOpen) continue;
+            const mint = p.mint ?? (p as { mintAddress?: string | null }).mintAddress;
+            if (!mint) {
+              store.logAudit(`AUTO_EXIT_SKIP · ${p.token} · no mint resolved`, "error");
+              continue;
+            }
+            const isPumpFunBondingCurve = p.venue === "pumpfun";
+            // Full-exit sell: no tokenAmountRaw — pump.fun sells the server-
+            // side full ATA balance, and AMM sells resolve the wallet's
+            // actual on-chain balance at sell time (the entry-time expected
+            // amount is stale the moment price moves and would make the
+            // exit tx fail with an insufficient-balance error).
+            valid.push({
+              p,
+              params: {
+                mint,
+                slippageBps: 500,
+                maxPriceImpactPct: 20,
+                isPumpFunBondingCurve,
+              },
+            });
+          }
+          if (!valid.length) return;
+
+          for (const { p } of valid) {
+            store.logAudit(
+              `AUTO_EXIT · ${p.token} · ${p.exitReason ?? "manual"} · selling on-chain (batch)`,
+              "execution",
+            );
+          }
+          try {
+            const results = await executeLiveSells(valid.map((v) => v.params));
+            const cur = useBotStore.getState();
+            for (let i = 0; i < valid.length; i++) {
+              const { p } = valid[i];
+              const r = results[i];
+              const solReceived = Number(r.solReceived) / LAMPORTS_PER_SOL;
+              cur.confirmLiveExit({ positionId: p.id, signature: r.signature, solReceived });
+              cur.logAudit(
+                `LIVE_SELL_CONFIRMED · ${p.token} · sig ${r.signature.slice(0, 8)}… · sol ${solReceived.toFixed(5)} · impact ${r.priceImpactPct}%`,
+                "execution",
+              );
+              toast.success(`Auto-exit filled · ${p.token}`, {
+                description: `${p.exitReason?.toUpperCase() ?? "EXIT"} · ${solReceived.toFixed(4)} SOL returned`,
+              });
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const stage = (err as { stage?: string }).stage;
+            // Positions stay flagged (exitRequested) so the manual Close
+            // button can still sell them; clear the processed markers so a
+            // re-emit retries the batch.
+            for (const { p } of valid) processedRef.current.delete(p.id);
+            store.logAudit(
+              `AUTO_EXIT_BATCH_FAILED${stage ? ` · stage=${stage}` : ""} · ${valid.length} position(s) · ${message}`,
+              "error",
+            );
+            toast.error("Auto-exit batch failed", {
+              description: stage ? `${stage}: ${message}` : message,
+            });
+          }
+          return;
+        }
+
         for (const p of fresh) {
           // Re-read latest store state inside the async loop.
           const s = useBotStore.getState();
@@ -74,15 +153,11 @@ export function useAutoExitExecutor() {
 
           const isPumpFunBondingCurve = p.venue === "pumpfun";
 
-          // AMM tokens need an explicit token amount for the Jupiter quote.
-          // Pump.fun sells can omit it (server reads the full ATA balance).
-          if (!isPumpFunBondingCurve && !p.tokensReceivedRaw) {
-            s.logAudit(
-              `AUTO_EXIT_SKIP · ${p.token} · AMM sell requires tokensReceivedRaw (missing from entry)`,
-              "error",
-            );
-            continue;
-          }
+          // Full-exit sell: omit tokenAmountRaw so the sell resolves the
+          // wallet's actual on-chain balance (pump.fun: server reads the
+          // full ATA balance; AMM: resolved at sell time in
+          // useLiveExecution). Entry-time expected amounts are stale the
+          // moment price moves and would fail the exit tx.
 
           s.logAudit(
             `AUTO_EXIT · ${p.token} · ${p.exitReason ?? "manual"} · selling on-chain`,
@@ -95,7 +170,6 @@ export function useAutoExitExecutor() {
               slippageBps: 500,
               maxPriceImpactPct: 20,
               isPumpFunBondingCurve,
-              tokenAmountRaw: p.tokensReceivedRaw,
             });
             const solReceived = Number(result.solReceived) / LAMPORTS_PER_SOL;
             s.confirmLiveExit({
@@ -129,5 +203,14 @@ export function useAutoExitExecutor() {
       });
     });
     return () => unsub();
-  }, [connected, publicKey, signTransaction, sniper, canSign, executeLiveSell, walletReady]);
+  }, [
+    connected,
+    publicKey,
+    signTransaction,
+    sniper,
+    canSign,
+    executeLiveSell,
+    executeLiveSells,
+    walletReady,
+  ]);
 }

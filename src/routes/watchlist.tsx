@@ -54,6 +54,7 @@ const DEFAULT_SAFETY_FILTERS: SafetyFilters = {
   trailingStopPct: 6,
   takeProfitPct: 10,
   stopLossPct: 5,
+  walletAutoApprove: true,
 };
 import { cn } from "@/lib/utils";
 import { isSafetyVerdict, useTokenSafety } from "@/hooks/use-token-safety";

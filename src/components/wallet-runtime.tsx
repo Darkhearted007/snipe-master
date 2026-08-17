@@ -194,34 +194,26 @@ export function LiveCloseButton({ position }: { position: Position }) {
   const mint = position.mint ?? (position as { mintAddress?: string | null }).mintAddress;
   const isPumpFunBondingCurve = position.venue === "pumpfun";
 
-  // AMM tokens need an explicit token amount for the Jupiter quote. If the
-  // entry didn't record it, we can't sell via Jupiter — show a disabled
-  // state with an explanatory tooltip.
-  const missingAmmAmount = !isPumpFunBondingCurve && !position.tokensReceivedRaw;
-
   return (
     <Button
       size="sm"
       variant="ghost"
-      disabled={!walletReady || busy || missingAmmAmount || !mint}
-      title={
-        missingAmmAmount
-          ? "Token amount unknown — cannot route AMM sell"
-          : !mint
-            ? "No mint address"
-            : "Sell on-chain and return SOL to wallet"
-      }
+      disabled={!walletReady || busy || !mint}
+      title={!mint ? "No mint address" : "Sell on-chain and return SOL to wallet"}
       onClick={async (e) => {
         e.stopPropagation();
         if (!mint) return;
         setBusy(true);
         try {
+          // Full-exit sell: no tokenAmountRaw — the sell resolves the
+          // wallet's actual on-chain token balance (pump.fun: full ATA via
+          // the server; AMM: resolved at sell time) so closing never fails
+          // from trying to sell more tokens than the entry actually filled.
           const result = await executeLiveSell({
             mint,
             slippageBps: 500,
             maxPriceImpactPct: 20,
             isPumpFunBondingCurve,
-            tokenAmountRaw: position.tokensReceivedRaw,
           });
           const solReceived = Number(result.solReceived) / LAMPORTS_PER_SOL;
           confirmLiveExit({
